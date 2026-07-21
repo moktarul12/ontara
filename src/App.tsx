@@ -4,6 +4,7 @@ import { GraphSearch } from './components/GraphSearch'
 import { HopControls } from './components/HopControls'
 import { KnowledgeGraph } from './components/KnowledgeGraph'
 import { useOntologyStore } from './hooks/useOntologyStore'
+import { SPARQL_SOURCES, type SparqlSourceId } from './types/ontology'
 
 export default function App() {
   const store = useOntologyStore()
@@ -18,12 +19,20 @@ export default function App() {
     }
   }
 
+  const onChangeSource = (source: SparqlSourceId) => {
+    const endpoint =
+      SPARQL_SOURCES.find((s) => s.id === source)?.endpoint ?? store.config.endpoint
+    store.clearGraph()
+    store.setConfig({ source, endpoint, seedUri: '', seedLabel: '' })
+  }
+
   return (
     <div className="app-shell">
       <ConnectionBar
         endpoint={store.config.endpoint}
+        source={store.config.source}
         loading={store.loading}
-        onChangeEndpoint={(endpoint) => store.setConfig({ endpoint })}
+        onChangeSource={onChangeSource}
         onBrowseClasses={() => void store.bootstrap({ startMode: 'classmap' })}
         onClear={store.clearGraph}
         hasGraph={hasGraph}
@@ -46,6 +55,7 @@ export default function App() {
               </>
             )}
             {isClassMap && <span className="map-pill">Ontology class map</span>}
+            <span className="map-pill">{store.config.source === 'wikidata' ? 'Wikidata' : 'DBpedia'}</span>
             {store.loading && (
               <span className="loading-pill">{store.loadingMessage || 'Loading…'}</span>
             )}

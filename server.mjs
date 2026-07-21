@@ -5,7 +5,12 @@ import { fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const dist = path.join(__dirname, 'dist')
 const PORT = Number(process.env.PORT) || 1901
-const SPARQL_UPSTREAM = process.env.SPARQL_UPSTREAM || 'https://dbpedia.org/sparql'
+const UA = 'Ontara/1.0 (https://github.com/moktarul12/ontara; ontology-demo)'
+
+const UPSTREAMS = {
+  dbpedia: process.env.SPARQL_UPSTREAM_DBPEDIA || 'https://dbpedia.org/sparql',
+  wikidata: process.env.SPARQL_UPSTREAM_WIKIDATA || 'https://query.wikidata.org/sparql',
+}
 
 const app = express()
 
@@ -13,10 +18,9 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ ok: true })
 })
 
-/** Same-origin SPARQL proxy — required because DBpedia blocks browser CORS. */
-app.all('/sparql', async (req, res) => {
+async function proxySparql(upstreamUrl, req, res) {
   try {
-    const upstream = new URL(SPARQL_UPSTREAM)
+    const upstream = new URL(upstreamUrl)
 
     if (req.method === 'GET') {
       for (const [k, v] of Object.entries(req.query)) {
@@ -26,6 +30,7 @@ app.all('/sparql', async (req, res) => {
 
     const headers = {
       Accept: req.headers.accept || 'application/sparql-results+json',
+      'User-Agent': UA,
     }
 
     let body
@@ -47,8 +52,7 @@ app.all('/sparql', async (req, res) => {
     const contentType = upstreamRes.headers.get('content-type')
     if (contentType) res.setHeader('Content-Type', contentType)
     res.status(upstreamRes.status)
-    const buf = Buffer.from(await upstreamRes.arrayBuffer())
-    res.send(buf)
+    res.send(Buffer.from(await upstreamRes.arrayBuffer()))
   } catch (err) {
     console.error('SPARQL proxy error', err)
     res.status(502).json({
@@ -56,11 +60,14 @@ app.all('/sparql', async (req, res) => {
       detail: err instanceof Error ? err.message : String(err),
     })
   }
-})
+}
+
+app.all('/sparql/wikidata', (req, res) => proxySparql(UPSTREAMS.wikidata, req, res))
+app.all('/sparql/dbpedia', (req, res) => proxySparql(UPSTREAMS.dbpedia, req, res))
+app.all('/sparql', (req, res) => proxySparql(UPSTREAMS.dbpedia, req, res))
 
 app.use(express.static(dist, { index: 'index.html', maxAge: '1h' }))
 
-// Express 5: named wildcard (bare '*' throws PathError)
 app.get('/{*spaPath}', (_req, res) => {
   res.sendFile(path.join(dist, 'index.html'))
 })

@@ -7,6 +7,22 @@ export default defineConfig({
     port: 1901,
     strictPort: true,
     proxy: {
+      '/sparql/wikidata': {
+        target: 'https://query.wikidata.org',
+        changeOrigin: true,
+        rewrite: () => '/sparql',
+        secure: true,
+        headers: {
+          'User-Agent': 'Ontara/1.0 (https://github.com/moktarul12/ontara)',
+        },
+      },
+      '/sparql/dbpedia': {
+        target: 'https://dbpedia.org',
+        changeOrigin: true,
+        rewrite: () => '/sparql',
+        secure: true,
+      },
+      // back-compat
       '/sparql': {
         target: 'https://dbpedia.org',
         changeOrigin: true,

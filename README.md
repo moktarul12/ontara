@@ -1,8 +1,11 @@
 # Ontara — Knowledge Graph Studio
 
-Search-first ontology explorer backed by **DBpedia SPARQL**. Search a person, place, or concept, open a 1-hop knowledge graph, inspect full entity details, and grow the graph like a family tree with multi-hop expand.
+Search-first ontology explorer backed by **Wikidata** (default) or **DBpedia** SPARQL. Search a person, place, or concept, open a 1-hop knowledge graph, inspect full entity details, and grow the graph like a family tree with multi-hop expand.
 
+**Live demo:** [https://ontara.onrender.com](https://ontara.onrender.com)  
 **Repo:** [github.com/moktarul12/ontara](https://github.com/moktarul12/ontara)
+
+Toggle **Wikidata** / **DBpedia** in the header.
 
 ---
 

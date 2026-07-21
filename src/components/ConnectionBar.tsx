@@ -1,10 +1,10 @@
-import { useState, type FormEvent } from 'react'
-import { DEFAULT_CONFIG, OWL_THING } from '../types/ontology'
+import { SPARQL_SOURCES, type SparqlSourceId } from '../types/ontology'
 
 interface Props {
   endpoint: string
+  source: SparqlSourceId
   loading: boolean
-  onChangeEndpoint: (endpoint: string) => void
+  onChangeSource: (source: SparqlSourceId) => void
   onBrowseClasses: () => void
   onClear: () => void
   hasGraph: boolean
@@ -12,19 +12,13 @@ interface Props {
 
 export function ConnectionBar({
   endpoint,
+  source,
   loading,
-  onChangeEndpoint,
+  onChangeSource,
   onBrowseClasses,
   onClear,
   hasGraph,
 }: Props) {
-  const [advanced, setAdvanced] = useState(false)
-
-  const handleEndpoint = (e: FormEvent) => {
-    e.preventDefault()
-    setAdvanced(false)
-  }
-
   return (
     <header className="topbar slim">
       <div className="brand">
@@ -35,13 +29,26 @@ export function ConnectionBar({
         </div>
       </div>
 
+      <div className="source-toggle" role="group" aria-label="Knowledge source">
+        {SPARQL_SOURCES.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            className={`source-btn ${source === s.id ? 'active' : ''}`}
+            disabled={loading}
+            onClick={() => onChangeSource(s.id)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
       <div className="header-actions">
         <button
           type="button"
           className="ghost"
           disabled={loading}
           onClick={onBrowseClasses}
-          title={`Load ${OWL_THING} class backbone`}
         >
           Browse classes
         </button>
@@ -50,24 +57,10 @@ export function ConnectionBar({
             New search
           </button>
         )}
-        <button type="button" className="ghost" onClick={() => setAdvanced((v) => !v)}>
-          {advanced ? 'Hide endpoint' : 'Endpoint'}
-        </button>
+        <span className="endpoint-hint" title={endpoint}>
+          {source === 'wikidata' ? 'query.wikidata.org' : 'dbpedia.org'}
+        </span>
       </div>
-
-      {advanced && (
-        <form className="endpoint-form" onSubmit={handleEndpoint}>
-          <label className="field grow full">
-            <span>SPARQL endpoint</span>
-            <input
-              value={endpoint}
-              onChange={(e) => onChangeEndpoint(e.target.value)}
-              placeholder={DEFAULT_CONFIG.endpoint}
-              spellCheck={false}
-            />
-          </label>
-        </form>
-      )}
     </header>
   )
 }

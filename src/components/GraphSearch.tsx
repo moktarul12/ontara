@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { OntologyStore } from '../hooks/useOntologyStore'
 import { searchInContext } from '../services/sparql'
 import {
-  SEARCH_EXAMPLES,
-  SEARCH_TYPE_SCOPES,
+  searchExamplesForSource,
+  searchScopesForSource,
   type ConnectedNode,
   type SearchTypeScopeId,
 } from '../types/ontology'
@@ -25,10 +25,26 @@ export function GraphSearch({ store }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const empty = graph.nodes.length === 0
 
-  const classUri = useMemo(
-    () => SEARCH_TYPE_SCOPES.find((s) => s.id === typeScope)?.classUri,
-    [typeScope],
+  const scopes = useMemo(
+    () => searchScopesForSource(config.source ?? 'wikidata'),
+    [config.source],
   )
+  const examples = useMemo(
+    () => searchExamplesForSource(config.source ?? 'wikidata'),
+    [config.source],
+  )
+
+  const classUri = useMemo(
+    () => scopes.find((s) => s.id === typeScope)?.classUri,
+    [typeScope, scopes],
+  )
+
+  useEffect(() => {
+    setTypeScope('all')
+    setQuery('')
+    setResults([])
+    setShowDropdown(false)
+  }, [config.source])
 
   useEffect(() => {
     if (selectedNode && !empty) setWithinSelected(true)
@@ -112,18 +128,18 @@ export function GraphSearch({ store }: Props) {
     void openKnowledgeGraph(hit.uri)
   }
 
-  const placeholder =
-    typeScope === 'all'
-      ? 'Enter a value — e.g. Einstein, Mumbai…'
-      : `Enter ${SEARCH_TYPE_SCOPES.find((s) => s.id === typeScope)?.label ?? ''} value…`
-
   return (
     <div className={`graph-search ${empty ? 'hero' : 'compact'}`} ref={wrapRef}>
       {empty && (
         <div className="search-hero-copy">
-          <p className="eyebrow">Knowledge graph</p>
+          <p className="eyebrow">
+            {config.source === 'wikidata' ? 'Wikidata' : 'DBpedia'} knowledge graph
+          </p>
           <h2>Search any person, place, or concept</h2>
-          <p>Select a class, then enter a value. Open a node to expand hops like a family tree.</p>
+          <p>
+            Toggle <strong>Wikidata</strong> / <strong>DBpedia</strong> in the header. Select a
+            class, then enter a value.
+          </p>
         </div>
       )}
 
@@ -137,7 +153,7 @@ export function GraphSearch({ store }: Props) {
               setShowDropdown(false)
             }}
           >
-            {SEARCH_TYPE_SCOPES.map((s) => (
+            {scopes.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.label}
               </option>
@@ -154,7 +170,11 @@ export function GraphSearch({ store }: Props) {
               setFocused(true)
             }}
             onFocus={() => setFocused(true)}
-            placeholder={placeholder}
+            placeholder={
+              typeScope === 'all'
+                ? `Search ${config.source === 'wikidata' ? 'Wikidata' : 'DBpedia'}…`
+                : `Enter ${scopes.find((s) => s.id === typeScope)?.label ?? ''} value…`
+            }
             autoComplete="off"
             spellCheck={false}
           />
@@ -184,7 +204,7 @@ export function GraphSearch({ store }: Props) {
 
       {empty && (
         <div className="search-examples">
-          {SEARCH_EXAMPLES.map((ex) => (
+          {examples.map((ex) => (
             <button
               key={ex.uri}
               type="button"

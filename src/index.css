@@ -83,11 +83,32 @@ button {
   margin-right: auto;
 }
 
-.header-actions {
+.source-toggle {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border-radius: 12px;
+  background: var(--mist);
+  border: 1px solid var(--line);
+}
+
+.source-btn {
+  padding: 0.4rem 0.85rem;
+  border-radius: 9px;
+  font-size: 0.84rem;
+  font-weight: 560;
+  color: var(--ink-soft);
+}
+
+.source-btn.active {
+  background: var(--ink);
+  color: var(--foam);
+}
+
+.endpoint-hint {
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  opacity: 0.85;
 }
 
 .endpoint-form {

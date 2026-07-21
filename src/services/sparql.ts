@@ -9,104 +9,51 @@ import {
   CORE_ONTOLOGY_CLASSES,
   OWL_THING,
   RDFS_SUBCLASS,
+  WD_ENTITY,
 } from '../types/ontology'
+import {
+  isWikidataEndpoint,
+  localName,
+  predicateLabel,
+  runSparql,
+  type SparqlBinding,
+} from './sparql-core'
+import * as wd from './wikidata'
 
+export {
+  isWikidataEndpoint,
+  localName,
+  predicateLabel,
+  runSparql,
+} from './sparql-core'
+
+const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'
 const LABEL_PREDICATES = [
   'http://www.w3.org/2000/01/rdf-schema#label',
   'http://xmlns.com/foaf/0.1/name',
-  'http://www.w3.org/2004/02/skos/core#prefLabel',
 ]
-
-const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type'
-const REQUEST_MS = 12000
-
-export function localName(uri: string): string {
-  if (!uri) return ''
-  try {
-    const decoded = decodeURIComponent(uri)
-    const hash = decoded.split('#').pop()
-    const slash = (hash ?? decoded).split('/').pop()
-    return (slash ?? decoded).replace(/_/g, ' ')
-  } catch {
-    return uri.split(/[#/]/).pop() ?? uri
-  }
-}
-
-export function predicateLabel(uri: string): string {
-  return localName(uri)
-}
-
-function escapeSparql(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-}
-
-function resolveEndpoint(endpoint: string): string {
-  // Same-origin proxy in both dev (Vite) and prod (Express on Render)
-  if (endpoint.includes('dbpedia.org/sparql') || endpoint === '/sparql') {
-    return '/sparql'
-  }
-  return endpoint
-}
-
-interface SparqlBinding {
-  [key: string]: { type: string; value: string; 'xml:lang'?: string; datatype?: string }
-}
-
-interface SparqlResponse {
-  results?: { bindings: SparqlBinding[] }
-}
 
 export function isOntologyClassUri(uri: string): boolean {
   return (
     uri === OWL_THING ||
+    uri === WD_ENTITY ||
     uri.startsWith('http://dbpedia.org/ontology/') ||
     uri.includes('/ontology/') ||
     uri.endsWith('#Thing') ||
-    uri.includes('owl#Class')
+    uri.includes('owl#Class') ||
+    // Wikidata types used as class scopes (Q5, Q515, …)
+    (uri.startsWith('http://www.wikidata.org/entity/Q') &&
+      ['Q5', 'Q515', 'Q6256', 'Q43229', 'Q386724', 'Q1656682', 'Q2221906', 'Q35120'].some(
+        (q) => uri.endsWith(q),
+      ))
   )
-}
-
-export async function runSparql(
-  endpoint: string,
-  query: string,
-  timeoutMs = REQUEST_MS,
-): Promise<SparqlBinding[]> {
-  const base = resolveEndpoint(endpoint)
-  const url = new URL(base, window.location.origin)
-  url.searchParams.set('query', query)
-  url.searchParams.set('format', 'json')
-
-  const ctrl = new AbortController()
-  const timer = window.setTimeout(() => ctrl.abort(), timeoutMs)
-
-  try {
-    const res = await fetch(url.toString(), {
-      method: 'GET',
-      headers: { Accept: 'application/sparql-results+json' },
-      signal: ctrl.signal,
-    })
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => '')
-      throw new Error(`SPARQL ${res.status}: ${text.slice(0, 200) || res.statusText}`)
-    }
-
-    const data = (await res.json()) as SparqlResponse
-    return data.results?.bindings ?? []
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('SPARQL request timed out — try a smaller expand or another node.')
-    }
-    throw err
-  } finally {
-    window.clearTimeout(timer)
-  }
 }
 
 export async function fetchResourceLabel(
   endpoint: string,
   uri: string,
 ): Promise<string> {
+  if (isWikidataEndpoint(endpoint)) return wd.wdLabel(endpoint, uri)
   const query = `
     SELECT ?label WHERE {
       OPTIONAL { <${uri}> <${LABEL_PREDICATES[0]}> ?l1 FILTER(langMatches(lang(?l1), "en") || lang(?l1) = "") }
@@ -122,14 +69,15 @@ export async function fetchResourceLabel(
   }
 }
 
-/** Fast relation list — avoids COUNT(*) over millions of instances. */
 export async function fetchRelationTypes(
   endpoint: string,
   uri: string,
 ): Promise<RelationType[]> {
-  if (isOntologyClassUri(uri)) {
-    return fetchClassRelationTypes(endpoint, uri)
+  if (isWikidataEndpoint(endpoint)) {
+    if (isOntologyClassUri(uri)) return wd.wdClassRelationTypes()
+    return wd.wdRelationTypes(endpoint, uri)
   }
+  if (isOntologyClassUri(uri)) return fetchClassRelationTypes(endpoint, uri)
   return fetchResourceRelationTypes(endpoint, uri)
 }
 
@@ -251,6 +199,9 @@ export async function fetchConnectedNodes(
   direction: 'out' | 'in',
   limit = 12,
 ): Promise<ConnectedNode[]> {
+  if (isWikidataEndpoint(endpoint)) {
+    return wd.wdConnectedNodes(endpoint, uri, predicate, direction, limit)
+  }
   // Keep queries lean — labels only, no nested type lookups
   const query =
     direction === 'out'
@@ -297,6 +248,7 @@ export async function fetchDataProperties(
   endpoint: string,
   uri: string,
 ): Promise<DataProperty[]> {
+  if (isWikidataEndpoint(endpoint)) return wd.wdDataProperties(endpoint, uri)
   if (isOntologyClassUri(uri) && uri === OWL_THING) return []
 
   const query = `
@@ -337,6 +289,7 @@ export async function fetchResourceClasses(
   endpoint: string,
   uri: string,
 ): Promise<string[]> {
+  if (isWikidataEndpoint(endpoint)) return wd.wdClasses(endpoint, uri)
   if (isOntologyClassUri(uri)) return ['Class']
 
   const query = `
@@ -361,11 +314,13 @@ export async function fetchResourceClasses(
 export function looksLikePersonName(term: string): boolean {
   const t = term.trim()
   if (t.length < 2) return false
-  // Multi-word capitalized / title-like queries → bias to Person
   const words = t.split(/\s+/).filter(Boolean)
   if (words.length >= 2) return true
-  // Single word that looks like a surname search still often a person
   return /^[A-Za-z][A-Za-z.'-]+$/.test(t) && t.length >= 3
+}
+
+function escapeSparql(value: string): string {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
 export async function searchResources(
@@ -374,6 +329,9 @@ export async function searchResources(
   classFilter?: string,
   limit = 25,
 ): Promise<ConnectedNode[]> {
+  if (isWikidataEndpoint(endpoint)) {
+    return wd.wdSearch(endpoint, term, classFilter, limit)
+  }
   const q = escapeSparql(term.trim())
   if (!q) return []
 
@@ -466,6 +424,9 @@ export async function searchInContext(
     limit?: number
   },
 ): Promise<ConnectedNode[]> {
+  if (isWikidataEndpoint(endpoint)) {
+    return wd.wdSearchInContext(endpoint, options)
+  }
   const { term = '', classUri, relatedToUri, limit = 25 } = options
   const q = escapeSparql(term.trim())
 
@@ -736,6 +697,9 @@ export async function fetchOntologyClassMap(endpoint: string): Promise<{
   links: GraphLink[]
   rootId: string
 }> {
+  if (isWikidataEndpoint(endpoint)) {
+    return wd.wdClassMap(endpoint)
+  }
   const nodes = new Map<string, GraphNode>()
   const links: GraphLink[] = []
 
