@@ -60,7 +60,8 @@ app.all('/sparql', async (req, res) => {
 
 app.use(express.static(dist, { index: 'index.html', maxAge: '1h' }))
 
-app.get('*', (_req, res) => {
+// Express 5: named wildcard (bare '*' throws PathError)
+app.get('/{*spaPath}', (_req, res) => {
   res.sendFile(path.join(dist, 'index.html'))
 })
 
