@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: ontara
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: SPARQL_UPSTREAM
+        value: https://dbpedia.org/sparql
