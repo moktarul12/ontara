@@ -144,12 +144,39 @@ button {
   gap: 0.55rem 0.75rem;
 }
 
+.search-mode-toggle {
+  display: inline-flex;
+  gap: 0.2rem;
+  margin-bottom: 0.5rem;
+  padding: 0.15rem;
+  border-radius: 10px;
+  background: rgba(16, 34, 38, 0.06);
+  border: 1px solid var(--line);
+}
+
+.search-mode-toggle button {
+  padding: 0.32rem 0.75rem;
+  border-radius: 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-soft);
+}
+
+.search-mode-toggle button.on {
+  background: var(--ink);
+  color: var(--foam);
+}
+
 .search-form {
   flex: 1 1 280px;
   display: grid;
   grid-template-columns: 110px minmax(140px, 1fr) auto;
   gap: 0.4rem;
   min-width: 0;
+}
+
+.search-form.dataprop {
+  grid-template-columns: 100px minmax(130px, 1.1fr) minmax(120px, 1fr) auto;
 }
 
 .sf-field {
@@ -234,6 +261,18 @@ button {
   margin-right: 0.1rem;
 }
 
+.hop-applied {
+  min-width: 1.15rem;
+  height: 1.15rem;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(15, 110, 106, 0.16);
+  color: var(--teal);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
 .hop-bracket {
   display: flex;
   gap: 0;
@@ -241,6 +280,37 @@ button {
   overflow: hidden;
   border: 1px solid var(--line);
   background: #fff;
+}
+
+.hop-stepper .hop-step,
+.hop-stepper .hop-grow {
+  min-width: 1.85rem;
+  height: 1.85rem;
+  padding: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: #fff;
+  border-right: 1px solid var(--line);
+}
+
+.hop-stepper .hop-grow {
+  border-right: none;
+  background: var(--mint);
+  color: #0c1a1c;
+}
+
+.hop-stepper .hop-grow:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.hop-step:hover:not(:disabled) {
+  background: rgba(15, 110, 106, 0.08);
+}
+
+.hop-step:disabled,
+.hop-grow:disabled {
+  opacity: 0.4;
 }
 
 .hop-n {
@@ -253,8 +323,9 @@ button {
   border-right: 1px solid var(--line);
 }
 
-.hop-n:last-child {
-  border-right: none;
+.hop-n.below {
+  color: var(--teal);
+  background: rgba(61, 220, 151, 0.12);
 }
 
 .hop-n.on {
@@ -280,28 +351,6 @@ button {
 .hop-d.on {
   background: rgba(15, 110, 106, 0.14);
   color: var(--teal);
-}
-
-.hop-plus {
-  width: 2.1rem;
-  height: 2.1rem;
-  border-radius: 9px;
-  background: var(--mint);
-  color: #0c1a1c;
-  font-size: 1.25rem;
-  font-weight: 600;
-  line-height: 1;
-  display: grid;
-  place-items: center;
-  box-shadow: 0 4px 12px rgba(61, 220, 151, 0.35);
-}
-
-.hop-plus:hover:not(:disabled) {
-  filter: brightness(1.05);
-}
-
-.hop-plus:disabled {
-  opacity: 0.45;
 }
 
 .within-line {
@@ -1015,6 +1064,184 @@ button {
   animation: rise-in 0.6s 0.15s ease both;
 }
 
+/* Concept legend */
+.graph-legend {
+  position: absolute;
+  z-index: 4;
+  right: 0.75rem;
+  top: 0.75rem;
+  width: 156px;
+  padding: 0.55rem 0.65rem 0.6rem;
+  border-radius: 12px;
+  background: rgba(12, 26, 28, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(10px);
+  color: #d7ebe8;
+  pointer-events: none;
+}
+
+.legend-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--mint);
+}
+
+.graph-legend ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.graph-legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+}
+
+.legend-swatch {
+  width: 18px;
+  height: 12px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  border: 1.5px solid rgba(255, 255, 255, 0.35);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+
+.legend-note {
+  margin: 0.45rem 0 0;
+  font-size: 0.58rem;
+  line-height: 1.35;
+  color: rgba(215, 235, 232, 0.55);
+}
+
+/* Multi-hop path trail */
+.inspector-path-block {
+  padding: 0.55rem 0.85rem 0.35rem;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(61, 220, 151, 0.06), transparent);
+}
+
+.hop-path-trail {
+  margin-bottom: 0.45rem;
+}
+
+.hop-path-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem 0.55rem;
+  margin-bottom: 0.4rem;
+}
+
+.hop-path-kicker {
+  margin: 0;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--teal);
+}
+
+.hop-path-meta {
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  flex: 1;
+}
+
+.hop-path-clear {
+  font-size: 0.7rem;
+  color: var(--teal);
+  text-decoration: underline;
+}
+
+.hop-path-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.hop-path-steps li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.12rem;
+}
+
+.hop-path-pred {
+  font-size: 0.65rem;
+  color: var(--gold);
+  font-weight: 560;
+  padding-left: 0.35rem;
+}
+
+.hop-path-node {
+  padding: 0.28rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 0.78rem;
+  color: var(--ink);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hop-path-node.root {
+  border-color: rgba(155, 107, 219, 0.45);
+  background: rgba(155, 107, 219, 0.1);
+}
+
+.hop-path-node.leaf {
+  border-color: rgba(240, 199, 94, 0.55);
+  background: rgba(240, 199, 94, 0.16);
+  font-weight: 600;
+}
+
+.hop-diary ul {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.hop-diary li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+}
+
+.hop-diary strong {
+  color: var(--ink);
+  font-size: 0.7rem;
+}
+
+.hop-recipes {
+  padding: 0.45rem 0.85rem 0.55rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.hop-recipe-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}
+
 .map-guide p {
   margin: 0;
   padding: 0.7rem 0.85rem;
@@ -1127,6 +1354,16 @@ button {
   inset: 0;
 }
 
+.cy-host {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.cy-host canvas {
+  outline: none;
+}
+
 .graph-atmosphere {
   position: absolute;
   inset: 0;
@@ -1134,6 +1371,59 @@ button {
     radial-gradient(ellipse 70% 50% at 50% 40%, rgba(61, 220, 151, 0.08), transparent 60%),
     radial-gradient(ellipse 50% 40% at 80% 80%, rgba(240, 199, 94, 0.06), transparent 55%);
   pointer-events: none;
+}
+
+.graph-atmosphere.hop-sky {
+  background:
+    radial-gradient(circle at 50% 48%, rgba(155, 107, 219, 0.14), transparent 22%),
+    radial-gradient(circle at 50% 48%, rgba(61, 220, 151, 0.1), transparent 38%),
+    radial-gradient(circle at 50% 48%, rgba(224, 122, 58, 0.08), transparent 52%),
+    radial-gradient(circle at 50% 48%, rgba(90, 140, 210, 0.07), transparent 68%),
+    radial-gradient(ellipse 80% 60% at 50% 50%, rgba(12, 26, 28, 0.2), transparent 70%);
+}
+
+.hop-orbit-guide {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+
+.hop-orbit-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px dashed transparent;
+  opacity: 0.55;
+  animation: hop-orbit-pulse 6s ease-in-out infinite;
+}
+
+.hop-orbit-1 {
+  border-color: rgba(61, 220, 151, 0.28);
+  animation-delay: 0s;
+}
+
+.hop-orbit-2 {
+  border-color: rgba(224, 122, 58, 0.25);
+  animation-delay: 0.4s;
+}
+
+.hop-orbit-3 {
+  border-color: rgba(90, 140, 210, 0.22);
+  animation-delay: 0.8s;
+}
+
+@keyframes hop-orbit-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.015);
+    opacity: 0.7;
+  }
 }
 
 .graph-grid {
@@ -1792,6 +2082,14 @@ button {
 
   .search-form {
     grid-template-columns: 90px 1fr auto;
+  }
+
+  .search-form.dataprop {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .search-form.dataprop .sf-go {
+    grid-column: 1 / -1;
   }
 
   .hop-quick {

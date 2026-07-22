@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import type { OntologyStore } from '../hooks/useOntologyStore'
-import { searchInContext, isOntologyClassUri } from '../services/sparql'
+import { searchByDataProperty, searchInContext, isOntologyClassUri } from '../services/sparql'
 import {
+  DATA_PROPERTY_SEARCH_DEFS,
+  DATA_PROP_SEARCH_EXAMPLES,
+  dataPropertyUriForSource,
   searchExamplesForSource,
   searchScopesForSource,
   type ConnectedNode,
+  type SearchMode,
   type SearchTypeScopeId,
 } from '../types/ontology'
 import { HopQuick } from './HopQuick'
@@ -21,7 +25,9 @@ export function GraphSearch({
   onSuggestOpenChange,
 }: Props) {
   const { config, openKnowledgeGraph, loading, graph, selectedNode } = store
+  const [mode, setMode] = useState<SearchMode>('entity')
   const [query, setQuery] = useState('')
+  const [propertyId, setPropertyId] = useState(DATA_PROPERTY_SEARCH_DEFS[4]?.id ?? 'filmingLocation')
   const [results, setResults] = useState<ConnectedNode[]>([])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
@@ -33,13 +39,12 @@ export function GraphSearch({
   const wrapRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<number>(0)
 
-  const scopes = useMemo(
-    () => searchScopesForSource(config.source ?? 'wikidata'),
-    [config.source],
-  )
-  const examples = useMemo(
-    () => searchExamplesForSource(config.source ?? 'wikidata'),
-    [config.source],
+  const source = config.source ?? 'wikidata'
+  const scopes = useMemo(() => searchScopesForSource(source), [source])
+  const examples = useMemo(() => searchExamplesForSource(source), [source])
+  const propertyDef = useMemo(
+    () => DATA_PROPERTY_SEARCH_DEFS.find((p) => p.id === propertyId) ?? DATA_PROPERTY_SEARCH_DEFS[0],
+    [propertyId],
   )
 
   const classUri = useMemo(
@@ -48,7 +53,10 @@ export function GraphSearch({
   )
 
   const canSearchWithin =
-    !!selectedNode && graph.nodes.length > 0 && !isOntologyClassUri(selectedNode.uri)
+    mode === 'entity' &&
+    !!selectedNode &&
+    graph.nodes.length > 0 &&
+    !isOntologyClassUri(selectedNode.uri)
 
   const suggestVisible =
     showDropdown && !suggestionsLocked && (results.length > 0 || (searched && !busy))
@@ -65,6 +73,7 @@ export function GraphSearch({
     setWithinSelected(false)
     setSearched(false)
     setSuggestionsLocked(false)
+    setMode('entity')
   }, [config.source])
 
   useEffect(() => {
@@ -87,7 +96,7 @@ export function GraphSearch({
   }, [])
 
   useEffect(() => {
-    if (suggestionsLocked) return
+    if (suggestionsLocked || mode !== 'entity') return
     const q = query.trim()
     if (q.length < 2) {
       setResults([])
@@ -100,10 +109,44 @@ export function GraphSearch({
     }, 220)
     return () => window.clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, config.endpoint, typeScope, withinSelected, selectedNode?.id, suggestionsLocked])
+  }, [query, config.endpoint, typeScope, withinSelected, selectedNode?.id, suggestionsLocked, mode])
 
   const runSearch = async (term: string, asSuggest: boolean) => {
     const q = term.trim()
+
+    if (mode === 'dataprop') {
+      if (!q || !propertyDef) {
+        setResults([])
+        setShowDropdown(false)
+        setSearched(false)
+        return
+      }
+      const gen = ++abortRef.current
+      setBusy(true)
+      setErr(null)
+      setSearched(true)
+      try {
+        const hits = await searchByDataProperty(config.endpoint, {
+          propertyUri: dataPropertyUriForSource(propertyDef, source),
+          value: q,
+          valueKind: propertyDef.valueKind,
+          classUri,
+          limit: 25,
+        })
+        if (gen !== abortRef.current) return
+        setResults(hits)
+        setShowDropdown(true)
+      } catch (error) {
+        if (gen !== abortRef.current) return
+        setErr(error instanceof Error ? error.message : 'Search failed')
+        setResults([])
+        setShowDropdown(true)
+      } finally {
+        if (gen === abortRef.current) setBusy(false)
+      }
+      return
+    }
+
     const relatedToUri =
       withinSelected && canSearchWithin && selectedNode ? selectedNode.uri : undefined
 
@@ -150,15 +193,45 @@ export function GraphSearch({
     setSearched(false)
     setErr(null)
     setQuery(hit.label)
+    setMode('entity')
     void openKnowledgeGraph(hit.uri)
   }
 
-  const showChips = showExamples && !query.trim() && !suggestVisible
+  const showEntityChips = showExamples && mode === 'entity' && !query.trim() && !suggestVisible
+  const showPropChips = showExamples && mode === 'dataprop' && !suggestVisible
 
   return (
     <div className={`search-dock ${suggestVisible ? 'suggesting' : ''}`} ref={wrapRef}>
+      <div className="search-mode-toggle" role="group" aria-label="Search mode">
+        <button
+          type="button"
+          className={mode === 'entity' ? 'on' : ''}
+          onClick={() => {
+            setMode('entity')
+            setShowDropdown(false)
+            setResults([])
+            setSuggestionsLocked(false)
+          }}
+        >
+          Entity
+        </button>
+        <button
+          type="button"
+          className={mode === 'dataprop' ? 'on' : ''}
+          onClick={() => {
+            setMode('dataprop')
+            setShowDropdown(false)
+            setResults([])
+            setSuggestionsLocked(false)
+            setWithinSelected(false)
+          }}
+        >
+          Data property
+        </button>
+      </div>
+
       <div className="search-dock-row">
-        <form className="search-form" onSubmit={handleSubmit}>
+        <form className={`search-form ${mode === 'dataprop' ? 'dataprop' : ''}`} onSubmit={handleSubmit}>
           <label className="sf-field sf-class">
             <span>Class</span>
             <select
@@ -177,6 +250,26 @@ export function GraphSearch({
             </select>
           </label>
 
+          {mode === 'dataprop' && (
+            <label className="sf-field sf-prop">
+              <span>Property</span>
+              <select
+                value={propertyId}
+                onChange={(e) => {
+                  setPropertyId(e.target.value)
+                  setShowDropdown(false)
+                  setSuggestionsLocked(false)
+                }}
+              >
+                {DATA_PROPERTY_SEARCH_DEFS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
           <label className="sf-field sf-value">
             <span>Value</span>
             <input
@@ -188,7 +281,13 @@ export function GraphSearch({
               onFocus={() => {
                 if (!suggestionsLocked && results.length > 0) setShowDropdown(true)
               }}
-              placeholder={`Search ${config.source === 'wikidata' ? 'Wikidata' : 'DBpedia'}…`}
+              placeholder={
+                mode === 'dataprop'
+                  ? propertyDef?.valueKind === 'entity'
+                    ? 'e.g. London, India, Action…'
+                    : 'e.g. 1879, 2008-07-18…'
+                  : `Search ${source === 'wikidata' ? 'Wikidata' : 'DBpedia'}…`
+              }
               autoComplete="off"
               spellCheck={false}
             />
@@ -197,7 +296,13 @@ export function GraphSearch({
           <button
             type="submit"
             className="sf-go"
-            disabled={busy || loading || (!query.trim() && !withinSelected && !classUri)}
+            disabled={
+              busy ||
+              loading ||
+              (mode === 'dataprop'
+                ? !query.trim()
+                : !query.trim() && !withinSelected && !classUri)
+            }
           >
             {busy || loading ? '…' : 'Search'}
           </button>
@@ -222,7 +327,7 @@ export function GraphSearch({
         </label>
       )}
 
-      {showChips && (
+      {showEntityChips && (
         <div className="search-examples">
           {examples.map((ex) => (
             <button
@@ -238,6 +343,28 @@ export function GraphSearch({
               }}
             >
               {ex.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showPropChips && (
+        <div className="search-examples">
+          {DATA_PROP_SEARCH_EXAMPLES.map((ex) => (
+            <button
+              key={`${ex.propertyId}-${ex.value}`}
+              type="button"
+              className="chip"
+              onClick={() => {
+                setPropertyId(ex.propertyId)
+                setTypeScope(ex.classId)
+                setQuery(ex.value)
+                setSuggestionsLocked(false)
+                void runSearch(ex.value, false)
+              }}
+            >
+              {DATA_PROPERTY_SEARCH_DEFS.find((p) => p.id === ex.propertyId)?.label ?? ex.propertyId}
+              : {ex.value}
             </button>
           ))}
         </div>

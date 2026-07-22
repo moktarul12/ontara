@@ -22,6 +22,7 @@ import {
   localName,
   type HopDirection,
 } from '../services/sparql'
+import { findShortestPath, type HopTrailStep, type PathStep } from '../utils/graphPath'
 
 type PanelMode = 'idle' | 'relations' | 'neighbors' | 'details' | 'search'
 
@@ -29,6 +30,8 @@ interface ExploreState {
   config: OntologyConfig
   graph: GraphData
   selectedNodeId: string | null
+  /** Root of current KG / path walks */
+  pathRootId: string | null
   activeRelation: RelationType | null
   relationTypes: RelationType[]
   neighbors: ConnectedNode[]
@@ -41,6 +44,14 @@ interface ExploreState {
   highlightedLinkId: string | null
   lastExpandMessage: string | null
   graphEpoch: number
+  /** Gold-highlighted multi-hop path on canvas */
+  pathNodeIds: string[]
+  pathLinkIds: string[]
+  pathSteps: PathStep[]
+  /** Expand-hops diary */
+  hopTrail: HopTrailStep[]
+  /** Current max hop depth on the graph (0 = seed only). */
+  appliedHopDepth: number
 }
 
 type Action =
@@ -68,11 +79,23 @@ type Action =
   | { type: 'UPDATE_NODE_META'; id: string; classes?: string[]; dataProperties?: DataProperty[] }
   | { type: 'CLEAR_EXPAND_MESSAGE' }
   | { type: 'CLEAR_GRAPH' }
+  | {
+      type: 'SET_PATH'
+      steps: PathStep[]
+      nodeIds: string[]
+      linkIds: string[]
+    }
+  | { type: 'CLEAR_PATH' }
+  | { type: 'SET_HOP_TRAIL'; trail: HopTrailStep[] }
+  | { type: 'PUSH_HOP_TRAIL'; step: HopTrailStep }
+  | { type: 'SET_APPLIED_HOPS'; depth: number }
+  | { type: 'TRIM_TO_HOPS'; maxDepth: number; message?: string }
 
 const initialState: ExploreState = {
   config: { ...DEFAULT_CONFIG },
   graph: { nodes: [], links: [] },
   selectedNodeId: null,
+  pathRootId: null,
   activeRelation: null,
   relationTypes: [],
   neighbors: [],
@@ -85,6 +108,11 @@ const initialState: ExploreState = {
   highlightedLinkId: null,
   lastExpandMessage: null,
   graphEpoch: 0,
+  pathNodeIds: [],
+  pathLinkIds: [],
+  pathSteps: [],
+  hopTrail: [],
+  appliedHopDepth: 0,
 }
 
 function reducer(state: ExploreState, action: Action): ExploreState {
@@ -105,6 +133,7 @@ function reducer(state: ExploreState, action: Action): ExploreState {
         ...state,
         graph: action.graph,
         selectedNodeId: action.seedId,
+        pathRootId: action.seedId,
         activeRelation: null,
         relationTypes: [],
         neighbors: [],
@@ -114,12 +143,21 @@ function reducer(state: ExploreState, action: Action): ExploreState {
         highlightedLinkId: null,
         lastExpandMessage: action.message ?? null,
         graphEpoch: action.bumpEpoch === false ? state.graphEpoch : state.graphEpoch + 1,
+        pathNodeIds: [],
+        pathLinkIds: [],
+        pathSteps: [],
+        hopTrail: [],
+        appliedHopDepth: Math.max(
+          0,
+          ...action.graph.nodes.map((n) => n.__hopDepth ?? 0),
+        ),
       }
     case 'CLEAR_GRAPH':
       return {
         ...state,
         graph: { nodes: [], links: [] },
         selectedNodeId: null,
+        pathRootId: null,
         activeRelation: null,
         relationTypes: [],
         neighbors: [],
@@ -129,6 +167,11 @@ function reducer(state: ExploreState, action: Action): ExploreState {
         highlightedLinkId: null,
         lastExpandMessage: null,
         graphEpoch: state.graphEpoch + 1,
+        pathNodeIds: [],
+        pathLinkIds: [],
+        pathSteps: [],
+        hopTrail: [],
+        appliedHopDepth: 0,
       }
     case 'SELECT_NODE':
       return {
@@ -204,9 +247,66 @@ function reducer(state: ExploreState, action: Action): ExploreState {
     }
     case 'CLEAR_EXPAND_MESSAGE':
       return { ...state, lastExpandMessage: null }
+    case 'SET_PATH':
+      return {
+        ...state,
+        pathSteps: action.steps,
+        pathNodeIds: action.nodeIds,
+        pathLinkIds: action.linkIds,
+      }
+    case 'CLEAR_PATH':
+      return { ...state, pathSteps: [], pathNodeIds: [], pathLinkIds: [] }
+    case 'SET_HOP_TRAIL':
+      return { ...state, hopTrail: action.trail }
+    case 'PUSH_HOP_TRAIL':
+      return { ...state, hopTrail: [...state.hopTrail, action.step] }
+    case 'SET_APPLIED_HOPS':
+      return { ...state, appliedHopDepth: action.depth }
+    case 'TRIM_TO_HOPS': {
+      const root = state.pathRootId
+      const keepIds = new Set(
+        state.graph.nodes
+          .filter((n) => {
+            const d = n.__hopDepth ?? 0
+            if (root && n.id === root) return true
+            return d <= action.maxDepth
+          })
+          .map((n) => n.id),
+      )
+      const nodes = state.graph.nodes.filter((n) => keepIds.has(n.id))
+      const links = state.graph.links.filter((l) => {
+        const s = typeof l.source === 'string' ? l.source : l.source.id
+        const t = typeof l.target === 'string' ? l.target : l.target.id
+        return keepIds.has(s) && keepIds.has(t)
+      })
+      const sel =
+        state.selectedNodeId && keepIds.has(state.selectedNodeId)
+          ? state.selectedNodeId
+          : root
+      return {
+        ...state,
+        graph: { nodes, links },
+        selectedNodeId: sel ?? null,
+        appliedHopDepth: action.maxDepth,
+        pathNodeIds: state.pathNodeIds.filter((id) => keepIds.has(id)),
+        pathLinkIds: state.pathLinkIds.filter((id) => links.some((l) => l.id === id)),
+        pathSteps: state.pathSteps.filter((s) => keepIds.has(s.nodeId)),
+        hopTrail: state.hopTrail.filter((h) => h.depth <= action.maxDepth),
+        lastExpandMessage: action.message ?? null,
+        graphEpoch: state.graphEpoch + 1,
+      }
+    }
     default:
       return state
   }
+}
+
+function stampInitialHopDepths(nodes: GraphNode[], rootId: string): GraphNode[] {
+  return nodes.map((n) => {
+    if (n.id === rootId) return { ...n, __hopDepth: 0 }
+    if (n.type === 'literal') return { ...n, __hopDepth: 1 }
+    return { ...n, __hopDepth: n.__hopDepth ?? 1 }
+  })
 }
 
 function linkId(source: string, predicate: string, target: string) {
@@ -270,9 +370,10 @@ export function useOntologyStore() {
       try {
         const kg = await fetchEntityKnowledgeGraph(state.config.endpoint, uri)
         if (gen !== selectGen.current) return
+        const stamped = stampInitialHopDepths(kg.nodes, uri)
         dispatch({
           type: 'RESET_GRAPH',
-          graph: { nodes: kg.nodes, links: kg.links },
+          graph: { nodes: stamped, links: kg.links },
           seedId: uri,
           panelMode: 'relations',
           message: kg.message,
@@ -358,6 +459,7 @@ export function useOntologyStore() {
           type: isOntologyClassUri(config.seedUri) ? 'class' : 'resource',
           classes: seed.classes,
           __pulse: 1,
+          __hopDepth: 0,
         }
 
         const nodes: GraphNode[] = [seedNode]
@@ -372,6 +474,7 @@ export function useOntologyStore() {
               uri: rel.target,
               label: rel.targetLabel,
               type: isOntologyClassUri(rel.target) ? 'class' : 'resource',
+              __hopDepth: 1,
             })
           }
           links.push({
@@ -408,16 +511,29 @@ export function useOntologyStore() {
     async (id: string) => {
       const gen = ++selectGen.current
       dispatch({ type: 'SELECT_NODE', id })
+
+      // Multi-hop path from KG root → clicked node (concept breadcrumb)
+      const root = state.pathRootId || state.config.seedUri || id
+      const path = findShortestPath(state.graph, root, id)
+      if (path && path.steps.length > 1) {
+        dispatch({
+          type: 'SET_PATH',
+          steps: path.steps,
+          nodeIds: path.steps.map((s) => s.nodeId),
+          linkIds: path.linkIds,
+        })
+      } else {
+        dispatch({ type: 'CLEAR_PATH' })
+      }
+
       dispatch({ type: 'SET_LOADING', loading: true, message: 'Loading relations…' })
       try {
-        // Relations first — unblocks the expand UI quickly
         const relations = await fetchRelationTypes(state.config.endpoint, id)
         if (gen !== selectGen.current) return
         dispatch({ type: 'SET_RELATIONS', relations })
         dispatch({ type: 'SET_LOADING', loading: false })
         dispatch({ type: 'SET_PANEL', mode: 'relations' })
 
-        // Details in background
         void Promise.all([
           fetchDataProperties(state.config.endpoint, id),
           fetchResourceClasses(state.config.endpoint, id),
@@ -434,7 +550,7 @@ export function useOntologyStore() {
         })
       }
     },
-    [state.config.endpoint],
+    [state.config.endpoint, state.config.seedUri, state.pathRootId, state.graph],
   )
 
   /** Primary UX: relation click → nodes + edges appear on the graph immediately. */
@@ -485,72 +601,152 @@ export function useOntologyStore() {
     [state.config.endpoint, state.selectedNodeId, state.graph.nodes],
   )
 
-  /** Family-tree style: expand N hops in/out/both from the selected node. */
-  const expandHops = useCallback(
-    async (hops: number, direction: HopDirection) => {
-      if (!state.selectedNodeId || hops < 1) return
+  /** Expand or shrink the graph to an absolute hop depth (1–3). Out / In / Both. */
+  const applyHops = useCallback(
+    async (targetHops: number, direction: HopDirection) => {
+      const root = state.selectedNodeId || state.pathRootId
+      if (!root || targetHops < 0) return
+
+      const current = state.appliedHopDepth
+
+      if (targetHops < current) {
+        dispatch({
+          type: 'TRIM_TO_HOPS',
+          maxDepth: targetHops,
+          message: `Trimmed to ${targetHops} hop${targetHops === 1 ? '' : 's'}`,
+        })
+        return
+      }
+
+      if (targetHops === current && current > 0) {
+        dispatch({
+          type: 'ADD_NODES',
+          nodes: [],
+          links: [],
+          message: `Already at ${current} hop${current === 1 ? '' : 's'}`,
+        })
+        return
+      }
+
+      const startDepth = current
+      const hopsToFetch = targetHops - startDepth
+      if (hopsToFetch < 1 && targetHops > 0) {
+        // current is 0 (seed only) — expand to target
+      }
+
       dispatch({
         type: 'SET_LOADING',
         loading: true,
-        message: `Expanding ${hops} hop${hops > 1 ? 's' : ''} (${direction})…`,
+        message: `Growing to ${targetHops} hop${targetHops > 1 ? 's' : ''} (${direction})…`,
       })
 
       try {
-        let frontier = [state.selectedNodeId]
-        // Track nodes we already used as hop sources (not merely drawn on canvas).
-        // Star KG already has 1-hop neighbors — we must still walk through them for hop 2/3.
+        // Frontier = nodes at the current max depth (or root if none)
+        let frontier: string[]
+        if (startDepth === 0) {
+          frontier = [root]
+        } else {
+          frontier = state.graph.nodes
+            .filter((n) => (n.__hopDepth ?? 0) === startDepth)
+            .map((n) => n.id)
+          if (!frontier.length) frontier = [root]
+        }
+
         const expandedFrom = new Set<string>()
         const known = new Set(state.graph.nodes.map((n) => n.id))
         let totalAdded = 0
         let totalEdges = 0
+        const allNewLinkIds: string[] = []
+        const pathNodes = new Set<string>([root])
+        const absoluteStart = startDepth === 0 ? 1 : startDepth + 1
 
-        for (let depth = 1; depth <= hops; depth++) {
+        for (let depth = absoluteStart; depth <= targetHops; depth++) {
           dispatch({
             type: 'SET_LOADING',
             loading: true,
-            message: `Hop ${depth}/${hops} (${direction})…`,
-          })
-          const layer = await fetchHopLayer(state.config.endpoint, frontier, direction, {
-            maxNodes: depth === 1 ? 1 : 6,
-            predsPerNode: 5,
-            neighborsPerPred: 5,
+            message: `Hop ${depth}/${targetHops} (${direction})…`,
           })
 
+          const perNodeBudget = direction === 'both' ? 8 : 6
+          const layer = await fetchHopLayer(state.config.endpoint, frontier, direction, {
+            maxNodes: depth === 1 ? 1 : Math.min(10, frontier.length + 2),
+            predsPerNode: direction === 'both' ? 4 : 5,
+            neighborsPerPred: direction === 'both' ? 4 : 5,
+          })
+
+          // Cap layer size for readability
+          const cappedNodes = layer.nodes.slice(0, direction === 'both' ? 36 : perNodeBudget * 4)
+          const cappedIds = new Set(cappedNodes.map((n) => n.id))
+          const cappedLinks = layer.links.filter((l) => {
+            const s = typeof l.source === 'string' ? l.source : l.source.id
+            const t = typeof l.target === 'string' ? l.target : l.target.id
+            return (
+              (cappedIds.has(s) || known.has(s) || frontier.includes(s)) &&
+              (cappedIds.has(t) || known.has(t) || frontier.includes(t))
+            )
+          })
+
+          const stamped = cappedNodes.map((n) => ({
+            ...n,
+            __hopDepth: n.__hopDepth ?? depth,
+            __pulse: 1,
+          }))
+
           let addedHere = 0
-          for (const n of layer.nodes) {
+          for (const n of stamped) {
             if (!known.has(n.id)) {
               known.add(n.id)
               addedHere += 1
             }
+            pathNodes.add(n.id)
           }
           totalAdded += addedHere
-          totalEdges += layer.links.length
+          totalEdges += cappedLinks.length
+          for (const l of cappedLinks) allNewLinkIds.push(l.id)
 
           dispatch({
             type: 'ADD_NODES',
-            nodes: layer.nodes,
-            links: layer.links,
-            message: `Hop ${depth}: +${addedHere} nodes · ${layer.links.length} edges`,
+            nodes: stamped,
+            links: cappedLinks,
+            message: `Hop ${depth}: +${addedHere} · ${cappedLinks.length} edges (${direction})`,
+          })
+
+          dispatch({
+            type: 'PUSH_HOP_TRAIL',
+            step: {
+              depth,
+              fromIds: [...frontier],
+              addedCount: addedHere,
+              edgeCount: cappedLinks.length,
+              sampleLabels: stamped.slice(0, 4).map((n) => n.label),
+            },
           })
 
           for (const f of frontier) expandedFrom.add(f)
 
           const next: string[] = []
           const nextSeen = new Set<string>()
-          for (const n of layer.nodes) {
+          for (const n of stamped) {
             if (expandedFrom.has(n.id) || nextSeen.has(n.id)) continue
             nextSeen.add(n.id)
             next.push(n.id)
           }
-          frontier = next.slice(0, 8)
+          frontier = next.slice(0, direction === 'both' ? 10 : 8)
           if (!frontier.length) break
         }
 
+        dispatch({ type: 'SET_APPLIED_HOPS', depth: targetHops })
+        dispatch({
+          type: 'SET_PATH',
+          steps: [],
+          nodeIds: [...pathNodes],
+          linkIds: allNewLinkIds.slice(0, 100),
+        })
         dispatch({
           type: 'ADD_NODES',
           nodes: [],
           links: [],
-          message: `Expanded ${hops} hop${hops > 1 ? 's' : ''} (${direction}) — +${totalAdded} nodes · ${totalEdges} edges`,
+          message: `At ${targetHops} hop${targetHops > 1 ? 's' : ''} (${direction}) — +${totalAdded} nodes · ${totalEdges} edges`,
         })
       } catch (err) {
         dispatch({
@@ -561,8 +757,37 @@ export function useOntologyStore() {
         dispatch({ type: 'SET_LOADING', loading: false })
       }
     },
-    [state.config.endpoint, state.selectedNodeId, state.graph.nodes],
+    [
+      state.selectedNodeId,
+      state.pathRootId,
+      state.appliedHopDepth,
+      state.graph.nodes,
+      state.config.endpoint,
+    ],
   )
+
+  const expandHops = useCallback(
+    async (hops: number, direction: HopDirection) => {
+      await applyHops(hops, direction)
+    },
+    [applyHops],
+  )
+
+  const shrinkHops = useCallback(
+    (steps = 1) => {
+      const next = Math.max(0, state.appliedHopDepth - steps)
+      dispatch({
+        type: 'TRIM_TO_HOPS',
+        maxDepth: next,
+        message: `Shrunk to ${next} hop${next === 1 ? '' : 's'}`,
+      })
+    },
+    [state.appliedHopDepth],
+  )
+
+  const clearPath = useCallback(() => {
+    dispatch({ type: 'CLEAR_PATH' })
+  }, [])
 
   const openRelation = useCallback(
     async (relation: RelationType) => {
@@ -716,6 +941,9 @@ export function useOntologyStore() {
     selectNode,
     expandRelation,
     expandHops,
+    shrinkHops,
+    applyHops,
+    clearPath,
     openRelation,
     toggleNeighbor,
     selectAllNeighbors,

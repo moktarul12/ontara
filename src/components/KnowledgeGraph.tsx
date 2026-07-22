@@ -1,49 +1,415 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import ForceGraph2D from 'react-force-graph-2d'
+import { useEffect, useRef } from 'react'
+import cytoscape, { type Core, type ElementDefinition } from 'cytoscape'
+import coseBilkent from 'cytoscape-cose-bilkent'
 import type { GraphData, GraphLink, GraphNode } from '../types/ontology'
+import { hopStyle, HOP_RADIUS, kindOf, labelBoxSize } from '../utils/nodeKind'
+import { GraphLegend } from './GraphLegend'
+
+cytoscape.use(coseBilkent)
 
 interface Props {
   data: GraphData
   selectedNodeId: string | null
   highlightedLinkId: string | null
   graphEpoch?: number
-  /** Increment to unpin + re-layout + fit */
   layoutKey?: number
-  /** Increment to zoom-to-fit only */
   fitKey?: number
+  pathNodeIds?: string[]
+  pathLinkIds?: string[]
   onNodeClick: (node: GraphNode) => void
   onBackgroundClick?: () => void
 }
 
-const COLORS = {
-  node: '#3ddc97',
-  nodeClass: '#7eb8da',
-  nodeSelected: '#f0c75e',
-  link: 'rgba(126, 184, 218, 0.45)',
-  linkHot: 'rgba(240, 199, 94, 0.9)',
-  label: '#e8f1f0',
+function shortLabel(label: string, max = 22) {
+  const t = label.trim()
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t
 }
 
-function nodeId(n: string | GraphNode): string {
-  return typeof n === 'string' ? n : n.id
+function linkEnds(l: GraphLink): { source: string; target: string } {
+  const source = typeof l.source === 'string' ? l.source : l.source.id
+  const target = typeof l.target === 'string' ? l.target : l.target.id
+  return { source, target }
 }
 
-type FGInstance = {
-  d3Force: (name: string, force?: unknown) => unknown
-  d3ReheatSimulation: () => void
-  centerAt: (x?: number, y?: number, ms?: number) => void
-  zoom: (scale?: number, ms?: number) => void
-  zoomToFit: (ms?: number, padding?: number) => void
+function buildElements(data: GraphData): ElementDefinition[] {
+  const hopOf = new Map(data.nodes.map((n) => [n.id, n.__hopDepth ?? 0]))
+  const rootId =
+    data.nodes.find((n) => (n.__hopDepth ?? 0) === 0)?.id ?? data.nodes[0]?.id
+
+  const nodes: ElementDefinition[] = data.nodes.map((n) => {
+    const kind = kindOf(n)
+    const hop = Math.min(3, Math.max(0, n.__hopDepth ?? 0))
+    const palette = hopStyle(hop)
+    const isRoot = n.id === rootId
+    const box = labelBoxSize(n.label, {
+      root: isRoot,
+      literal: n.type === 'literal',
+    })
+    const width = box.width
+    const height = box.height
+
+    return {
+      group: 'nodes',
+      data: {
+        id: n.id,
+        label: box.label,
+        fullLabel: n.label,
+        kind,
+        hopDepth: hop,
+        hopBadge: hop === 0 ? 'SEED' : `H${hop}`,
+        nodeType: n.type,
+        uri: n.uri,
+        boxW: width,
+        boxH: height,
+        textMax: box.textMax,
+      },
+      classes: [
+        `hop-${hop}`,
+        n.type === 'literal' ? 'is-literal' : '',
+        isRoot ? 'is-root' : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+      style: {
+        width,
+        height,
+        'background-color': palette.fill,
+        'border-color': palette.border,
+        color: palette.text,
+        shape: 'round-rectangle',
+        'text-max-width': box.textMax,
+      },
+    }
+  })
+
+  const links: ElementDefinition[] = data.links.map((l) => {
+    const { source, target } = linkEnds(l)
+    const hs = hopOf.get(source) ?? 0
+    const ht = hopOf.get(target) ?? 0
+    // Colour edge by the outer hop so ring connections feel unified
+    const edgeHop = Math.min(3, Math.max(hs, ht))
+    const palette = hopStyle(edgeHop)
+    const toLiteral =
+      data.nodes.find((n) => n.id === source)?.type === 'literal' ||
+      data.nodes.find((n) => n.id === target)?.type === 'literal'
+
+    return {
+      group: 'edges',
+      data: {
+        id: l.id,
+        source,
+        target,
+        label: shortLabel(l.predicateLabel, 12),
+        fullLabel: l.predicateLabel,
+        predicate: l.predicate,
+        edgeHop,
+      },
+      classes: [
+        `edge-hop-${edgeHop}`,
+        toLiteral ? 'literal-edge' : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+      style: {
+        'line-color': palette.edge,
+        'target-arrow-color': palette.edge,
+      },
+    }
+  })
+
+  return [...nodes, ...links]
 }
 
-function pinNode(node: GraphNode) {
-  if (typeof node.x === 'number') node.fx = node.x
-  if (typeof node.y === 'number') node.fy = node.y
+const CY_STYLE: cytoscape.StylesheetStyle[] = [
+  {
+    selector: 'node',
+    style: {
+      label: 'data(label)',
+      'font-family': 'Outfit, system-ui, sans-serif',
+      'font-size': 10,
+      'font-weight': 650,
+      'text-valign': 'center',
+      'text-halign': 'center',
+      'text-wrap': 'wrap',
+      'text-max-width': 100,
+      'text-margin-y': 0,
+      'text-outline-width': 0,
+      'border-width': 2.5,
+      'border-opacity': 1,
+      'background-opacity': 1,
+      'corner-radius': 9,
+      'overlay-padding': 3,
+      'z-index': 10,
+      'shadow-blur': 10,
+      'shadow-color': 'rgba(0,0,0,0.28)',
+      'shadow-opacity': 0.4,
+      'shadow-offset-x': 0,
+      'shadow-offset-y': 2,
+    },
+  },
+  {
+    selector: 'node.is-root',
+    style: {
+      'font-size': 11,
+      'font-weight': 700,
+      'border-width': 3.5,
+      'corner-radius': 11,
+      'shadow-blur': 16,
+      'shadow-opacity': 0.55,
+    },
+  },
+  {
+    selector: 'node.hop-3',
+    style: {
+      'border-style': 'dashed',
+      'border-width': 2,
+      opacity: 0.95,
+    },
+  },
+  {
+    selector: 'node.selected',
+    style: {
+      'border-color': '#c9a227',
+      'border-width': 3.5,
+      'font-weight': 700,
+      'z-index': 40,
+      'underlay-color': '#f0c75e',
+      'underlay-padding': 5,
+      'underlay-opacity': 0.45,
+      'underlay-shape': 'round-rectangle',
+    },
+  },
+  {
+    selector: 'node.on-path',
+    style: {
+      'border-color': '#c9a227',
+      'underlay-color': '#f0c75e',
+      'underlay-padding': 4,
+      'underlay-opacity': 0.32,
+      'underlay-shape': 'round-rectangle',
+      'z-index': 30,
+    },
+  },
+  {
+    selector: 'node.is-literal',
+    style: {
+      'font-size': 8,
+      'font-weight': 500,
+      'border-style': 'dashed',
+      'corner-radius': 7,
+    },
+  },
+  {
+    selector: 'edge',
+    style: {
+      width: 2,
+      'target-arrow-shape': 'triangle',
+      'arrow-scale': 0.7,
+      'curve-style': 'straight',
+      label: 'data(label)',
+      'font-family': 'Outfit, system-ui, sans-serif',
+      'font-size': 7,
+      'font-weight': 600,
+      color: '#dce8e6',
+      'text-background-color': '#0c1a1c',
+      'text-background-opacity': 0.78,
+      'text-background-padding': '2px',
+      'text-background-shape': 'roundrectangle',
+      'text-rotation': 'autorotate',
+      'text-margin-y': -6,
+      opacity: 0.88,
+      'z-index': 1,
+    },
+  },
+  {
+    selector: 'edge.literal-edge',
+    style: {
+      'line-style': 'dashed',
+      width: 1.4,
+    },
+  },
+  {
+    selector: 'edge.hot',
+    style: {
+      width: 2.6,
+      'line-color': 'rgba(240, 199, 94, 0.9)',
+      'target-arrow-color': 'rgba(240, 199, 94, 0.95)',
+      color: '#ffe9a8',
+      'font-size': 8,
+      opacity: 1,
+      'z-index': 20,
+    },
+  },
+  {
+    selector: 'edge.on-path',
+    style: {
+      width: 3.2,
+      'line-color': '#f0c75e',
+      'target-arrow-color': '#f0c75e',
+      color: '#fff3c4',
+      'font-size': 8,
+      'font-weight': 700,
+      opacity: 1,
+      'z-index': 25,
+    },
+  },
+  {
+    selector: '.faded',
+    style: {
+      opacity: 0.18,
+      'text-opacity': 0.14,
+    },
+  },
+]
+
+/** Place nodes on tight hop orbits so edges stay short. */
+function placeHopOrbits(cy: Core, data: GraphData) {
+  const root =
+    data.nodes.find((n) => (n.__hopDepth ?? 0) === 0)?.id ?? data.nodes[0]?.id
+  if (!root) return
+
+  const buckets = new Map<number, string[]>()
+  for (const n of data.nodes) {
+    const h = Math.min(3, Math.max(0, n.__hopDepth ?? 0))
+    const list = buckets.get(h) ?? []
+    list.push(n.id)
+    buckets.set(h, list)
+  }
+
+  // Slight spiral offset per ring so cards don't stack identically
+  const ringTwist = [0, -0.12, 0.18, -0.08]
+
+  cy.batch(() => {
+    for (const [hop, ids] of buckets) {
+      const r = HOP_RADIUS[hop as 0 | 1 | 2 | 3] ?? 145 + hop * 100
+      const twist = ringTwist[hop] ?? 0
+      ids.forEach((id, i) => {
+        const angle = twist + (i / Math.max(ids.length, 1)) * Math.PI * 2 - Math.PI / 2
+        const jitter = hop === 0 ? 0 : ((i % 3) - 1) * 6
+        const node = cy.getElementById(id)
+        if (node.empty()) return
+        node.position({
+          x: Math.cos(angle) * (r + jitter),
+          y: Math.sin(angle) * (r + jitter),
+        })
+      })
+    }
+  })
 }
 
-function unpinNode(node: GraphNode) {
-  node.fx = undefined
-  node.fy = undefined
+function runLayout(cy: Core, data: GraphData, selectedNodeId: string | null) {
+  const hasHops = data.nodes.some((n) => (n.__hopDepth ?? 0) > 0)
+  const n = data.nodes.length
+
+  if (hasHops && n <= 120) {
+    placeHopOrbits(cy, data)
+    cy.animate(
+      {
+        fit: { eles: cy.elements(), padding: 40 },
+      },
+      { duration: 420 },
+    )
+    if (selectedNodeId) {
+      const el = cy.getElementById(selectedNodeId)
+      if (el.nonempty()) {
+        cy.animate(
+          { center: { eles: el }, zoom: Math.min(Math.max(cy.zoom(), 1.05), 1.55) },
+          { duration: 280 },
+        )
+      }
+    }
+    return
+  }
+
+  cy.layout({
+    name: 'cose-bilkent',
+    animate: n < 60 ? 'end' : false,
+    animationDuration: 480,
+    fit: true,
+    padding: 40,
+    nodeDimensionsIncludeLabels: true,
+    idealEdgeLength: 72,
+    edgeElasticity: 0.35,
+    nestingFactor: 0.1,
+    gravity: 0.55,
+    numIter: n > 80 ? 1600 : 2200,
+    tile: true,
+    randomize: false,
+  } as cytoscape.LayoutOptions).run()
+}
+
+function applyHighlights(
+  cy: Core,
+  selectedNodeId: string | null,
+  pathNodeIds: string[],
+  pathLinkIds: string[],
+  highlightedLinkId: string | null,
+) {
+  const pathN = new Set(pathNodeIds)
+  const pathL = new Set(pathLinkIds)
+
+  cy.batch(() => {
+    cy.nodes().forEach((node) => {
+      const id = node.id()
+      const selected = id === selectedNodeId
+      const onPath = pathN.has(id)
+      node.removeClass('selected on-path')
+      if (selected) node.addClass('selected')
+      if (onPath) node.addClass('on-path')
+
+      const boxW = Number(node.data('boxW') ?? 100)
+      const boxH = Number(node.data('boxH') ?? 42)
+      const bump = selected ? 8 : onPath ? 5 : 0
+      const hop = Number(node.data('hopDepth') ?? 0)
+      const palette = hopStyle(hop)
+      node.style({
+        width: boxW + bump,
+        height: boxH + bump * 0.3,
+        'background-color': palette.fill,
+        'border-color': selected || onPath ? '#c9a227' : palette.border,
+        color: palette.text,
+        'text-max-width': Number(node.data('textMax') ?? boxW - 14),
+      })
+    })
+
+    cy.edges().forEach((edge) => {
+      const id = edge.id()
+      const onPath = pathL.has(id)
+      const src = edge.data('source') as string
+      const tgt = edge.data('target') as string
+      const hot =
+        onPath ||
+        id === highlightedLinkId ||
+        src === selectedNodeId ||
+        tgt === selectedNodeId
+      edge.removeClass('hot on-path')
+      if (hot) edge.addClass('hot')
+      if (onPath) edge.addClass('on-path')
+
+      if (!hot && !onPath) {
+        const edgeHop = Number(edge.data('edgeHop') ?? 1)
+        const palette = hopStyle(edgeHop)
+        edge.style({
+          'line-color': palette.edge,
+          'target-arrow-color': palette.edge,
+        })
+      }
+    })
+
+    if (pathNodeIds.length > 1) {
+      const keep = new Set([...pathNodeIds, ...pathLinkIds])
+      cy.elements().forEach((ele) => {
+        if (!keep.has(ele.id()) && !ele.hasClass('selected')) ele.addClass('faded')
+        else ele.removeClass('faded')
+      })
+    } else {
+      cy.elements().removeClass('faded')
+    }
+  })
+}
+
+function maxHop(data: GraphData) {
+  return Math.max(0, ...data.nodes.map((n) => n.__hopDepth ?? 0))
 }
 
 export function KnowledgeGraph({
@@ -53,301 +419,133 @@ export function KnowledgeGraph({
   graphEpoch = 0,
   layoutKey = 0,
   fitKey = 0,
+  pathNodeIds = [],
+  pathLinkIds = [],
   onNodeClick,
   onBackgroundClick,
 }: Props) {
-  const fgRef = useRef<FGInstance | undefined>(undefined)
   const wrapRef = useRef<HTMLDivElement>(null)
-  const nodeStore = useRef(new Map<string, GraphNode>())
-  const linkStore = useRef(new Map<string, GraphLink>())
-  const prevSelected = useRef<string | null>(null)
-  const prevEpoch = useRef(graphEpoch)
-  const [size, setSize] = useState({ w: 0, h: 0 })
-  const dragging = useRef(false)
+  const cyRef = useRef<Core | null>(null)
+  const onNodeClickRef = useRef(onNodeClick)
+  const onBgRef = useRef(onBackgroundClick)
+  const rawMap = useRef(new Map<string, GraphNode>())
+  const lastEpoch = useRef(graphEpoch)
+  const lastSig = useRef('')
 
-  const graphData = useMemo(() => {
-    if (prevEpoch.current !== graphEpoch) {
-      prevEpoch.current = graphEpoch
-      nodeStore.current.clear()
-      linkStore.current.clear()
-      prevSelected.current = null
-    }
-
-    const nextNodeIds = new Set(data.nodes.map((n) => n.id))
-    for (const id of [...nodeStore.current.keys()]) {
-      if (!nextNodeIds.has(id)) nodeStore.current.delete(id)
-    }
-
-    const center = selectedNodeId
-      ? nodeStore.current.get(selectedNodeId)
-      : undefined
-    let spawnIndex = 0
-
-    for (const n of data.nodes) {
-      const existing = nodeStore.current.get(n.id)
-      if (existing) {
-        existing.label = n.label
-        existing.type = n.type
-        existing.classes = n.classes
-        existing.__pulse = n.__pulse
-      } else {
-        const isCenter = n.id === selectedNodeId || data.nodes.length === 1
-        const angle = (spawnIndex / Math.max(data.nodes.length - 1, 1)) * Math.PI * 2
-        spawnIndex += 1
-        const radius = isCenter ? 0 : 90 + (spawnIndex % 5) * 18
-        const baseX = center?.x ?? 0
-        const baseY = center?.y ?? 0
-        nodeStore.current.set(n.id, {
-          ...n,
-          x: isCenter ? baseX : baseX + Math.cos(angle) * radius,
-          y: isCenter ? baseY : baseY + Math.sin(angle) * radius,
-        })
-      }
-    }
-
-    const nextLinkIds = new Set(data.links.map((l) => l.id))
-    for (const id of [...linkStore.current.keys()]) {
-      if (!nextLinkIds.has(id)) linkStore.current.delete(id)
-    }
-
-    for (const l of data.links) {
-      if (!linkStore.current.has(l.id)) {
-        linkStore.current.set(l.id, { ...l })
-      } else {
-        linkStore.current.get(l.id)!.predicateLabel = l.predicateLabel
-      }
-    }
-
-    return {
-      nodes: data.nodes.map((n) => nodeStore.current.get(n.id)!),
-      links: data.links.map((l) => linkStore.current.get(l.id)!),
-    }
-  }, [data, selectedNodeId, graphEpoch])
+  onNodeClickRef.current = onNodeClick
+  onBgRef.current = onBackgroundClick
 
   useEffect(() => {
     const el = wrapRef.current
     if (!el) return
-    const ro = new ResizeObserver((entries) => {
-      const cr = entries[0]?.contentRect
-      if (!cr) return
-      setSize({ w: Math.floor(cr.width), h: Math.floor(cr.height) })
+
+    const cy = cytoscape({
+      container: el,
+      elements: [],
+      style: CY_STYLE,
+      minZoom: 0.2,
+      maxZoom: 3.2,
+      wheelSensitivity: 0.28,
+      boxSelectionEnabled: false,
     })
-    ro.observe(el)
-    setSize({ w: el.clientWidth, h: el.clientHeight })
-    return () => ro.disconnect()
+    cyRef.current = cy
+
+    cy.on('tap', 'node', (evt) => {
+      const raw = rawMap.current.get(evt.target.id())
+      if (raw) onNodeClickRef.current(raw)
+    })
+    cy.on('tap', (evt) => {
+      if (evt.target === cy) onBgRef.current?.()
+    })
+
+    return () => {
+      cy.destroy()
+      cyRef.current = null
+    }
   }, [])
 
-  // Configure forces once; do NOT reheat on every node add
   useEffect(() => {
-    const fg = fgRef.current
-    if (!fg) return
-    const charge = fg.d3Force('charge') as { strength?: (n: number) => void } | undefined
-    charge?.strength?.(-80)
-    const link = fg.d3Force('link') as { distance?: (n: number) => void } | undefined
-    link?.distance?.(100)
-  }, [size.w, size.h])
+    const cy = cyRef.current
+    if (!cy) return
 
-  // Fresh graph: short layout then pin
-  useEffect(() => {
-    const fg = fgRef.current
-    if (!fg || graphData.nodes.length === 0) return
-    for (const n of graphData.nodes) unpinNode(n)
-    fg.d3ReheatSimulation()
-    const t = window.setTimeout(() => {
-      fg.zoomToFit?.(400, 80)
-    }, 450)
-    return () => window.clearTimeout(t)
-  }, [graphEpoch])
+    rawMap.current = new Map(data.nodes.map((n) => [n.id, n]))
+    const sig = `${graphEpoch}|${data.nodes.map((n) => n.id).join(',')}|${data.links.map((l) => l.id).join(',')}`
+    const epochChanged = lastEpoch.current !== graphEpoch
+    const structureChanged = lastSig.current !== sig
+    lastEpoch.current = graphEpoch
+    lastSig.current = sig
 
-  // Manual reset layout
+    if (structureChanged) {
+      cy.batch(() => {
+        cy.elements().remove()
+        cy.add(buildElements(data))
+      })
+      runLayout(cy, data, selectedNodeId)
+    }
+
+    applyHighlights(cy, selectedNodeId, pathNodeIds, pathLinkIds, highlightedLinkId)
+
+    if (epochChanged && !structureChanged && data.nodes.length) {
+      runLayout(cy, data, selectedNodeId)
+    }
+  }, [
+    data,
+    selectedNodeId,
+    pathNodeIds,
+    pathLinkIds,
+    highlightedLinkId,
+    graphEpoch,
+  ])
+
   useEffect(() => {
     if (layoutKey === 0) return
-    const fg = fgRef.current
-    if (!fg || nodeStore.current.size === 0) return
-    for (const n of nodeStore.current.values()) unpinNode(n)
-    fg.d3ReheatSimulation()
-    const t = window.setTimeout(() => fg.zoomToFit?.(400, 70), 500)
-    return () => window.clearTimeout(t)
-  }, [layoutKey])
+    const cy = cyRef.current
+    if (!cy || data.nodes.length === 0) return
+    runLayout(cy, data, selectedNodeId)
+  }, [layoutKey, data, selectedNodeId])
 
-  // Fit view only
   useEffect(() => {
     if (fitKey === 0) return
-    fgRef.current?.zoomToFit?.(350, 70)
+    cyRef.current?.fit(undefined, 40)
   }, [fitKey])
 
   useEffect(() => {
-    if (!selectedNodeId || !fgRef.current || dragging.current) return
-    if (prevSelected.current === selectedNodeId) return
-    prevSelected.current = selectedNodeId
-    const node = nodeStore.current.get(selectedNodeId)
-    if (node && typeof node.x === 'number' && typeof node.y === 'number') {
-      fgRef.current.centerAt(node.x, node.y, 350)
-      fgRef.current.zoom(1.6, 350)
-    }
+    const cy = cyRef.current
+    if (!cy || !selectedNodeId) return
+    const el = cy.getElementById(selectedNodeId)
+    if (el.empty()) return
+    cy.animate(
+      { center: { eles: el }, zoom: Math.max(cy.zoom(), 1.1) },
+      { duration: 280 },
+    )
   }, [selectedNodeId])
 
-  const handleEngineStop = useCallback(() => {
-    if (dragging.current) return
-    for (const n of nodeStore.current.values()) {
-      pinNode(n)
-    }
-  }, [])
-
-  const handleNodeDrag = useCallback((node: GraphNode) => {
-    dragging.current = true
-    unpinNode(node)
-  }, [])
-
-  const handleNodeDragEnd = useCallback((node: GraphNode) => {
-    pinNode(node)
-    node.vx = 0
-    node.vy = 0
-    dragging.current = false
-  }, [])
-
-  const paintNode = useCallback(
-    (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const x = node.x ?? 0
-      const y = node.y ?? 0
-      const selected = node.id === selectedNodeId
-      const degree = Math.min(
-        data.links.filter(
-          (l) =>
-            nodeId(l.source as string | GraphNode) === node.id ||
-            nodeId(l.target as string | GraphNode) === node.id,
-        ).length,
-        10,
-      )
-      const r = 6 + degree * 0.55 + (selected ? 2.5 : 0)
-      const isClass = node.type === 'class'
-      const base = isClass ? COLORS.nodeClass : COLORS.node
-
-      if (selected) {
-        ctx.beginPath()
-        ctx.arc(x, y, r * 2.2, 0, Math.PI * 2)
-        ctx.fillStyle = 'rgba(240, 199, 94, 0.14)'
-        ctx.fill()
-      }
-
-      const grad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r)
-      grad.addColorStop(0, selected ? '#ffe9a8' : isClass ? '#c5e4f5' : '#7dffc0')
-      grad.addColorStop(1, selected ? COLORS.nodeSelected : base)
-
-      if (isClass) {
-        ctx.beginPath()
-        ctx.moveTo(x, y - r)
-        ctx.lineTo(x + r, y)
-        ctx.lineTo(x, y + r)
-        ctx.lineTo(x - r, y)
-        ctx.closePath()
-        ctx.fillStyle = grad
-        ctx.fill()
-        ctx.strokeStyle = selected ? '#fff3c4' : 'rgba(232, 241, 240, 0.45)'
-        ctx.lineWidth = (selected ? 2 : 1) / globalScale
-        ctx.stroke()
-      } else {
-        ctx.beginPath()
-        ctx.arc(x, y, r, 0, Math.PI * 2)
-        ctx.fillStyle = grad
-        ctx.fill()
-        ctx.strokeStyle = selected ? '#fff3c4' : 'rgba(232, 241, 240, 0.35)'
-        ctx.lineWidth = (selected ? 2 : 1) / globalScale
-        ctx.stroke()
-      }
-
-      const label = node.label.length > 22 ? `${node.label.slice(0, 20)}…` : node.label
-      const fontSize = Math.max(12 / globalScale, 3)
-      ctx.font = `${selected ? 600 : 500} ${fontSize}px Outfit, sans-serif`
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'top'
-      ctx.fillStyle = COLORS.label
-      ctx.fillText(label, x, y + r + 3)
-    },
-    [selectedNodeId, data.links],
-  )
-
-  const paintPointer = useCallback(
-    (node: GraphNode, color: string, ctx: CanvasRenderingContext2D) => {
-      ctx.beginPath()
-      ctx.arc(node.x ?? 0, node.y ?? 0, 16, 0, Math.PI * 2)
-      ctx.fillStyle = color
-      ctx.fill()
-    },
-    [],
-  )
-
-  const paintLink = useCallback(
-    (link: GraphLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const src = link.source as GraphNode
-      const tgt = link.target as GraphNode
-      if (typeof src !== 'object' || typeof tgt !== 'object') return
-      if (src.x == null || src.y == null || tgt.x == null || tgt.y == null) return
-
-      const hot =
-        link.id === highlightedLinkId ||
-        nodeId(src) === selectedNodeId ||
-        nodeId(tgt) === selectedNodeId
-
-      ctx.beginPath()
-      ctx.moveTo(src.x, src.y)
-      ctx.lineTo(tgt.x, tgt.y)
-      ctx.strokeStyle = hot ? COLORS.linkHot : COLORS.link
-      ctx.lineWidth = (hot ? 2 : 1.2) / globalScale
-      ctx.stroke()
-
-      if (hot || globalScale > 1.3) {
-        const mx = (src.x + tgt.x) / 2
-        const my = (src.y + tgt.y) / 2
-        const fontSize = Math.max(10 / globalScale, 2.4)
-        ctx.font = `500 ${fontSize}px Outfit, sans-serif`
-        ctx.fillStyle = hot ? 'rgba(240, 199, 94, 0.95)' : 'rgba(200, 220, 220, 0.7)'
-        ctx.textAlign = 'center'
-        ctx.textBaseline = 'middle'
-        const text =
-          link.predicateLabel.length > 18
-            ? `${link.predicateLabel.slice(0, 16)}…`
-            : link.predicateLabel
-        ctx.fillText(text, mx, my - 3)
-      }
-    },
-    [highlightedLinkId, selectedNodeId],
-  )
+  const hopsVisible = maxHop(data)
 
   return (
-    <div className="graph-stage" ref={wrapRef}>
-      <div className="graph-atmosphere" aria-hidden />
+    <div className="graph-stage">
+      <div className="graph-atmosphere hop-sky" aria-hidden />
       <div className="graph-grid" aria-hidden />
-      {size.w > 0 && size.h > 0 && (
-        <ForceGraph2D
-          ref={fgRef as never}
-          graphData={graphData as never}
-          width={size.w}
-          height={size.h}
-          backgroundColor="rgba(0,0,0,0)"
-          nodeCanvasObject={paintNode as never}
-          nodePointerAreaPaint={paintPointer as never}
-          linkCanvasObject={paintLink as never}
-          linkDirectionalArrowLength={4}
-          linkDirectionalArrowRelPos={0.92}
-          linkDirectionalParticles={0}
-          onNodeClick={(node) => onNodeClick(node as GraphNode)}
-          onBackgroundClick={onBackgroundClick}
-          onEngineStop={handleEngineStop}
-          onNodeDrag={handleNodeDrag as never}
-          onNodeDragEnd={handleNodeDragEnd as never}
-          cooldownTicks={40}
-          warmupTicks={30}
-          d3AlphaDecay={0.08}
-          d3VelocityDecay={0.4}
-          enableNodeDrag
-          enableZoomInteraction
-          enablePanInteraction
-        />
-      )}
+      <div className="hop-orbit-guide" aria-hidden data-hops={hopsVisible}>
+        {[1, 2, 3].map((h) =>
+          hopsVisible >= h ? (
+            <span
+              key={h}
+              className={`hop-orbit-ring hop-orbit-${h}`}
+              style={{
+                // Visual only — mirrors HOP_RADIUS scale relatively
+                width: `${28 + h * 22}%`,
+                height: `${28 + h * 22}%`,
+              }}
+            />
+          ) : null,
+        )}
+      </div>
+      <div className="cy-host" ref={wrapRef} />
+      {data.nodes.length > 0 && <GraphLegend />}
       {data.nodes.length > 0 && (
         <div className="graph-hint">
-          Drag to move · Scroll to zoom · Click a node to list its relations
+          Same colour = same hop · Short orbits · Gold path · −/+ hops
         </div>
       )}
     </div>

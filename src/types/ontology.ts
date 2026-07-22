@@ -13,6 +13,8 @@ export interface GraphNode {
   fy?: number
   __degree?: number
   __pulse?: number
+  /** Hop distance from expand root (1 = direct neighbor). */
+  __hopDepth?: number
 }
 
 export interface GraphLink {
@@ -120,6 +122,7 @@ export const DEFAULT_CONFIG: OntologyConfig = {
 export const SEARCH_TYPE_SCOPES_DBPEDIA = [
   { id: 'all', label: 'All', classUri: undefined as string | undefined },
   { id: 'person', label: 'Person', classUri: 'http://dbpedia.org/ontology/Person' },
+  { id: 'work', label: 'Work / Film', classUri: 'http://dbpedia.org/ontology/Work' },
   { id: 'city', label: 'City', classUri: 'http://dbpedia.org/ontology/City' },
   { id: 'place', label: 'Place', classUri: 'http://dbpedia.org/ontology/Place' },
   { id: 'organisation', label: 'Organisation', classUri: 'http://dbpedia.org/ontology/Organisation' },
@@ -129,29 +132,118 @@ export const SEARCH_TYPE_SCOPES_DBPEDIA = [
 export const SEARCH_TYPE_SCOPES_WIKIDATA = [
   { id: 'all', label: 'All', classUri: undefined as string | undefined },
   { id: 'person', label: 'Person', classUri: 'http://www.wikidata.org/entity/Q5' },
+  { id: 'work', label: 'Work / Film', classUri: 'http://www.wikidata.org/entity/Q11424' },
   { id: 'city', label: 'City', classUri: 'http://www.wikidata.org/entity/Q515' },
   { id: 'place', label: 'Place', classUri: 'http://www.wikidata.org/entity/Q2221906' },
   { id: 'organisation', label: 'Organisation', classUri: 'http://www.wikidata.org/entity/Q43229' },
 ] as const
 
-export type SearchTypeScopeId = (typeof SEARCH_TYPE_SCOPES_WIKIDATA)[number]['id']
+export type SearchTypeScopeId =
+  | (typeof SEARCH_TYPE_SCOPES_WIKIDATA)[number]['id']
+  | (typeof SEARCH_TYPE_SCOPES_DBPEDIA)[number]['id']
 
 export function searchScopesForSource(source: SparqlSourceId) {
   return source === 'wikidata' ? SEARCH_TYPE_SCOPES_WIKIDATA : SEARCH_TYPE_SCOPES_DBPEDIA
 }
 
+export type SearchMode = 'entity' | 'dataprop'
+export type DataPropertyValueKind = 'literal' | 'entity'
+
+/** Curated data properties for Property + Value search. */
+export interface DataPropertySearchDef {
+  id: string
+  label: string
+  /** How to match the user value */
+  valueKind: DataPropertyValueKind
+  wikidataUri: string
+  dbpediaUri: string
+}
+
+export const DATA_PROPERTY_SEARCH_DEFS: DataPropertySearchDef[] = [
+  {
+    id: 'description',
+    label: 'Description',
+    valueKind: 'literal',
+    wikidataUri: 'http://schema.org/description',
+    dbpediaUri: 'http://dbpedia.org/ontology/abstract',
+  },
+  {
+    id: 'birthDate',
+    label: 'Birth / inception date',
+    valueKind: 'literal',
+    wikidataUri: 'http://www.wikidata.org/prop/direct/P569',
+    dbpediaUri: 'http://dbpedia.org/ontology/birthDate',
+  },
+  {
+    id: 'inception',
+    label: 'Inception / founded',
+    valueKind: 'literal',
+    wikidataUri: 'http://www.wikidata.org/prop/direct/P571',
+    dbpediaUri: 'http://dbpedia.org/ontology/foundingDate',
+  },
+  {
+    id: 'country',
+    label: 'Country',
+    valueKind: 'entity',
+    wikidataUri: 'http://www.wikidata.org/prop/direct/P17',
+    dbpediaUri: 'http://dbpedia.org/ontology/country',
+  },
+  {
+    id: 'filmingLocation',
+    label: 'Filming location',
+    valueKind: 'entity',
+    wikidataUri: 'http://www.wikidata.org/prop/direct/P915',
+    dbpediaUri: 'http://dbpedia.org/ontology/filmingLocation',
+  },
+  {
+    id: 'genre',
+    label: 'Genre',
+    valueKind: 'entity',
+    wikidataUri: 'http://www.wikidata.org/prop/direct/P136',
+    dbpediaUri: 'http://dbpedia.org/ontology/genre',
+  },
+  {
+    id: 'award',
+    label: 'Award received',
+    valueKind: 'entity',
+    wikidataUri: 'http://www.wikidata.org/prop/direct/P166',
+    dbpediaUri: 'http://dbpedia.org/ontology/award',
+  },
+  {
+    id: 'publicationDate',
+    label: 'Publication / release date',
+    valueKind: 'literal',
+    wikidataUri: 'http://www.wikidata.org/prop/direct/P577',
+    dbpediaUri: 'http://dbpedia.org/ontology/releaseDate',
+  },
+]
+
+export function dataPropertyUriForSource(
+  def: DataPropertySearchDef,
+  source: SparqlSourceId,
+): string {
+  return source === 'wikidata' ? def.wikidataUri : def.dbpediaUri
+}
+
 export const SEARCH_EXAMPLES_WIKIDATA = [
+  { label: 'The Dark Knight', uri: 'http://www.wikidata.org/entity/Q163872' },
   { label: 'Albert Einstein', uri: 'http://www.wikidata.org/entity/Q937' },
   { label: 'Paris', uri: 'http://www.wikidata.org/entity/Q90' },
-  { label: 'India', uri: 'http://www.wikidata.org/entity/Q668' },
   { label: 'Marie Curie', uri: 'http://www.wikidata.org/entity/Q7186' },
 ] as const
 
 export const SEARCH_EXAMPLES_DBPEDIA = [
+  { label: 'The Dark Knight', uri: 'http://dbpedia.org/resource/The_Dark_Knight_(film)' },
   { label: 'Albert Einstein', uri: 'http://dbpedia.org/resource/Albert_Einstein' },
   { label: 'Paris', uri: 'http://dbpedia.org/resource/Paris' },
-  { label: 'India', uri: 'http://dbpedia.org/resource/India' },
   { label: 'Marie Curie', uri: 'http://dbpedia.org/resource/Marie_Curie' },
+] as const
+
+export const DATA_PROP_SEARCH_EXAMPLES = [
+  { propertyId: 'filmingLocation', value: 'London', classId: 'work' as const },
+  { propertyId: 'birthDate', value: '1879', classId: 'person' as const },
+  { propertyId: 'country', value: 'India', classId: 'all' as const },
+  { propertyId: 'genre', value: 'superhero', classId: 'work' as const },
 ] as const
 
 export function searchExamplesForSource(source: SparqlSourceId) {

@@ -1,4 +1,5 @@
 import type { OntologyStore } from '../hooks/useOntologyStore'
+import { HopPathTrail } from './HopPathTrail'
 
 interface Props {
   store: OntologyStore
@@ -27,7 +28,16 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
     lastExpandMessage,
     graph,
     openKnowledgeGraph,
+    pathSteps,
+    hopTrail,
+    clearPath,
+    selectNode,
+    applyHops,
+    pathRootId,
   } = store
+
+  const rootLabel =
+    graph.nodes.find((n) => n.id === pathRootId)?.label || store.config.seedLabel || undefined
 
   if (collapsed) {
     return (
@@ -123,6 +133,74 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
           Data
         </button>
       </nav>
+
+      {(pathSteps.length > 1 || hopTrail.length > 0) && (
+        <div className="inspector-path-block">
+          {pathSteps.length > 1 && (
+            <HopPathTrail
+              steps={pathSteps}
+              rootLabel={rootLabel}
+              onClear={clearPath}
+              onStepClick={(id) => void selectNode(id)}
+            />
+          )}
+          {hopTrail.length > 0 && (
+            <div className="hop-diary">
+              <p className="hop-path-kicker">Expand diary</p>
+              <ul>
+                {hopTrail.map((h) => (
+                  <li key={h.depth}>
+                    <strong>Hop {h.depth}</strong>
+                    <span>
+                      +{h.addedCount} · {h.sampleLabels.join(', ') || '…'}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {selectedNode.type !== 'class' && panelMode === 'relations' && (
+        <div className="hop-recipes">
+          <p className="hop-path-kicker">Try a multi-hop walk</p>
+          <div className="hop-recipe-row">
+            <button
+              type="button"
+              className="chip"
+              disabled={loading}
+              onClick={() => void applyHops(1, 'out')}
+            >
+              1 hop out
+            </button>
+            <button
+              type="button"
+              className="chip"
+              disabled={loading}
+              onClick={() => void applyHops(2, 'out')}
+            >
+              2 hops out
+            </button>
+            <button
+              type="button"
+              className="chip"
+              disabled={loading}
+              onClick={() => void applyHops(3, 'both')}
+            >
+              3 hops both
+            </button>
+            <button
+              type="button"
+              className="chip"
+              disabled={loading || store.appliedHopDepth <= 0}
+              onClick={() => store.shrinkHops(1)}
+            >
+              −1 hop
+            </button>
+          </div>
+        </div>
+      )}
 
       {panelMode === 'details' && <DataPropertiesView store={store} />}
 
@@ -222,7 +300,9 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
           ) : (
             <>
               <p className="panel-lead">
-                Pick a relation to list connected nodes, then add selected or all to the graph.
+                Multi-hop explore: <strong>List</strong> a relation → pick connected nodes →{' '}
+                <strong>Add selected / Add all</strong>. Use search-bar <strong>Hops 1–3</strong> to
+                walk further out.
               </p>
               {selectedNode.type !== 'class' && (
                 <button

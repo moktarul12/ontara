@@ -558,6 +558,113 @@ export async function wdSearchInContext(
   }
 }
 
+/** Find entities that have a given data/object property matching value. */
+export async function wdSearchByDataProperty(
+  endpoint: string,
+  options: {
+    propertyUri: string
+    value: string
+    valueKind: 'literal' | 'entity'
+    classUri?: string
+    limit?: number
+  },
+): Promise<ConnectedNode[]> {
+  const { propertyUri, valueKind, classUri, limit = 25 } = options
+  const raw = options.value.trim()
+  if (!raw || !propertyUri) return []
+
+  const typeClause = classUri
+    ? `{ ?item <${WDT_INSTANCE_OF}> <${classUri}> . } UNION { ?item <${WDT_INSTANCE_OF}> ?c . ?c <${WDT_SUBCLASS_OF}> <${classUri}> . }`
+    : ''
+  const escaped = escapeSparql(raw)
+
+  if (valueKind === 'literal') {
+    const query = `
+      SELECT DISTINCT ?item ?itemLabel WHERE {
+        ${typeClause}
+        ?item <${propertyUri}> ?v .
+        FILTER(CONTAINS(LCASE(STR(?v)), LCASE("${escaped}")))
+        OPTIONAL {
+          ?item <http://www.w3.org/2000/01/rdf-schema#label> ?itemLabel
+          FILTER(LANG(?itemLabel) = "en")
+        }
+      } LIMIT ${limit}
+    `
+    try {
+      const rows = await runSparql(endpoint, query, 16000)
+      return rows.map((r) => ({
+        uri: r.item.value,
+        label: r.itemLabel?.value || localName(r.item.value),
+        typeLabel: localName(propertyUri),
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  // Entity-valued: resolve value to candidate IRIs, then match property
+  let valueUris: string[] = []
+  try {
+    const hits = await searchWikidataApi(raw, 5)
+    valueUris = hits.map((h) => `http://www.wikidata.org/entity/${h.id}`)
+  } catch {
+    /* label fallback below */
+  }
+
+  if (valueUris.length) {
+    const values = valueUris.map((u) => `<${u}>`).join(' ')
+    const query = `
+      SELECT DISTINCT ?item ?itemLabel WHERE {
+        ${typeClause}
+        VALUES ?v { ${values} }
+        ?item <${propertyUri}> ?v .
+        OPTIONAL {
+          ?item <http://www.w3.org/2000/01/rdf-schema#label> ?itemLabel
+          FILTER(LANG(?itemLabel) = "en")
+        }
+      } LIMIT ${limit}
+    `
+    try {
+      const rows = await runSparql(endpoint, query, 16000)
+      if (rows.length) {
+        return rows.map((r) => ({
+          uri: r.item.value,
+          label: r.itemLabel?.value || localName(r.item.value),
+          typeLabel: localName(propertyUri),
+        }))
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  // Fallback: match on the object's English label
+  const fallback = `
+    SELECT DISTINCT ?item ?itemLabel WHERE {
+      ${typeClause}
+      ?item <${propertyUri}> ?v .
+      FILTER(isIRI(?v))
+      ?v <http://www.w3.org/2000/01/rdf-schema#label> ?vLabel .
+      FILTER(LANG(?vLabel) = "en")
+      FILTER(CONTAINS(LCASE(STR(?vLabel)), LCASE("${escaped}")))
+      OPTIONAL {
+        ?item <http://www.w3.org/2000/01/rdf-schema#label> ?itemLabel
+        FILTER(LANG(?itemLabel) = "en")
+      }
+    } LIMIT ${limit}
+  `
+  try {
+    const rows = await runSparql(endpoint, fallback, 16000)
+    return rows.map((r) => ({
+      uri: r.item.value,
+      label: r.itemLabel?.value || localName(r.item.value),
+      typeLabel: localName(propertyUri),
+    }))
+  } catch {
+    return []
+  }
+}
+
 export async function wdClassMap(_endpoint: string): Promise<{
   nodes: GraphNode[]
   links: GraphLink[]

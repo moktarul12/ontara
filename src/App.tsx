@@ -26,8 +26,9 @@ export default function App() {
     if (isResource) setPanelCollapsed(false)
   }, [store.config.seedUri, isResource])
 
-  const onNodeClick = (nodeId: string) => {
-    // Click selects the node and loads its relations — does not reset the graph
+  const onNodeClick = (nodeId: string, type?: string) => {
+    // Literal data-property chips are display-only
+    if (type === 'literal' || nodeId.startsWith('literal:')) return
     void store.selectNode(nodeId)
     setPanelCollapsed(false)
   }
@@ -80,7 +81,9 @@ export default function App() {
               graphEpoch={store.graphEpoch}
               layoutKey={layoutKey}
               fitKey={fitKey}
-              onNodeClick={(node) => onNodeClick(node.id)}
+              pathNodeIds={store.pathNodeIds}
+              pathLinkIds={store.pathLinkIds}
+              onNodeClick={(node) => onNodeClick(node.id, node.type)}
             />
           </section>
 

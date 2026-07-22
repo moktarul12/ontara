@@ -1,6 +1,7 @@
 import type {
   ConnectedNode,
   DataProperty,
+  DataPropertyValueKind,
   GraphLink,
   GraphNode,
   RelationType,
@@ -531,6 +532,163 @@ export async function searchInContext(
   }
 }
 
+/** Search entities by a curated data/object property + value. */
+export async function searchByDataProperty(
+  endpoint: string,
+  options: {
+    propertyUri: string
+    value: string
+    valueKind: DataPropertyValueKind
+    classUri?: string
+    limit?: number
+  },
+): Promise<ConnectedNode[]> {
+  if (isWikidataEndpoint(endpoint)) {
+    return wd.wdSearchByDataProperty(endpoint, options)
+  }
+
+  const { propertyUri, valueKind, classUri, limit = 25 } = options
+  const raw = options.value.trim()
+  if (!raw || !propertyUri) return []
+  const escaped = escapeSparql(raw)
+  const typeClause = classUri ? `?item a <${classUri}> .` : ''
+
+  if (valueKind === 'literal') {
+    const ft = `
+      SELECT DISTINCT ?item ?label WHERE {
+        ${typeClause}
+        ?item <${propertyUri}> ?v .
+        FILTER(CONTAINS(LCASE(STR(?v)), LCASE("${escaped}")))
+        OPTIONAL {
+          ?item <http://www.w3.org/2000/01/rdf-schema#label> ?label
+          FILTER(langMatches(lang(?label), "en") || lang(?label) = "")
+        }
+      } LIMIT ${limit}
+    `
+    try {
+      const rows = await runSparql(endpoint, ft, 16000)
+      return rows.map((r) => ({
+        uri: r.item.value,
+        label: r.label?.value || localName(r.item.value),
+        typeLabel: localName(propertyUri),
+      }))
+    } catch {
+      return []
+    }
+  }
+
+  // Entity-valued: resolve value, then match
+  let valueUris: string[] = []
+  try {
+    const hits = await searchResources(endpoint, raw, undefined, 5)
+    valueUris = hits.map((h) => h.uri)
+  } catch {
+    /* label fallback */
+  }
+
+  if (valueUris.length) {
+    const values = valueUris.map((u) => `<${u}>`).join(' ')
+    const query = `
+      SELECT DISTINCT ?item ?label WHERE {
+        ${typeClause}
+        VALUES ?v { ${values} }
+        ?item <${propertyUri}> ?v .
+        OPTIONAL {
+          ?item <http://www.w3.org/2000/01/rdf-schema#label> ?label
+          FILTER(langMatches(lang(?label), "en") || lang(?label) = "")
+        }
+      } LIMIT ${limit}
+    `
+    try {
+      const rows = await runSparql(endpoint, query, 16000)
+      if (rows.length) {
+        return rows.map((r) => ({
+          uri: r.item.value,
+          label: r.label?.value || localName(r.item.value),
+          typeLabel: localName(propertyUri),
+        }))
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const fallback = `
+    SELECT DISTINCT ?item ?label WHERE {
+      ${typeClause}
+      ?item <${propertyUri}> ?v .
+      FILTER(isIRI(?v))
+      ?v <http://www.w3.org/2000/01/rdf-schema#label> ?vLabel .
+      FILTER(langMatches(lang(?vLabel), "en") || lang(?vLabel) = "")
+      FILTER(CONTAINS(LCASE(STR(?vLabel)), LCASE("${escaped}")))
+      OPTIONAL {
+        ?item <http://www.w3.org/2000/01/rdf-schema#label> ?label
+        FILTER(langMatches(lang(?label), "en") || lang(?label) = "")
+      }
+    } LIMIT ${limit}
+  `
+  try {
+    const rows = await runSparql(endpoint, fallback, 16000)
+    return rows.map((r) => ({
+      uri: r.item.value,
+      label: r.label?.value || localName(r.item.value),
+      typeLabel: localName(propertyUri),
+    }))
+  } catch {
+    return []
+  }
+}
+
+/** Attach up to 6 short data-property literals as graph nodes (concept-aligned). */
+export function attachDataPropertyLiterals(
+  centerUri: string,
+  dataProperties: DataProperty[],
+  nodes: GraphNode[],
+  links: GraphLink[],
+  max = 6,
+): { nodes: GraphNode[]; links: GraphLink[] } {
+  const skip = /description|abstract|comment|wiki/i
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]))
+  const linkIds = new Set(links.map((l) => l.id))
+  let added = 0
+
+  for (const p of dataProperties) {
+    if (added >= max) break
+    if (skip.test(p.predicateLabel) || skip.test(p.predicate)) continue
+    const value = p.value.trim()
+    if (!value || value.length > 80) continue
+    // Prefer short facts (dates, numbers, short strings)
+    if (value.length > 48 && !/^\d/.test(value)) continue
+
+    const litId = `literal:${p.predicate}:${value.slice(0, 64)}`
+    if (nodeMap.has(litId)) continue
+
+    nodeMap.set(litId, {
+      id: litId,
+      uri: litId,
+      label: value.length > 28 ? `${value.slice(0, 26)}…` : value,
+      type: 'literal',
+      classes: [p.predicateLabel],
+      __pulse: 1,
+    })
+
+    const lid = linkId(centerUri, p.predicate, litId)
+    if (!linkIds.has(lid)) {
+      linkIds.add(lid)
+      links.push({
+        id: lid,
+        source: centerUri,
+        target: litId,
+        predicate: p.predicate,
+        predicateLabel: p.predicateLabel,
+      })
+    }
+    added += 1
+  }
+
+  return { nodes: [...nodeMap.values()], links }
+}
+
 export async function searchClasses(
   endpoint: string,
   term: string,
@@ -586,14 +744,22 @@ export async function fetchEntityKnowledgeGraph(
       center.type = isOntologyClassUri(uri) ? 'class' : 'resource'
     }
 
+    const withLits = attachDataPropertyLiterals(
+      uri,
+      dataProperties,
+      star.nodes,
+      star.links,
+      6,
+    )
+
     return {
       label: star.label,
       classes,
       dataProperties,
       relationTypes,
-      nodes: star.nodes,
-      links: star.links,
-      message: `Knowledge graph for ${star.label} — ${star.nodes.length - 1} connected · ${star.links.length} relations`,
+      nodes: withLits.nodes,
+      links: withLits.links,
+      message: `Knowledge graph for ${star.label} — ${withLits.nodes.length - 1} connected · ${withLits.links.length} relations`,
     }
   }
 
@@ -664,14 +830,22 @@ export async function fetchEntityKnowledgeGraph(
   const edgeCount = links.length
   const neighborCount = nodes.size - 1
 
+  const withLits = attachDataPropertyLiterals(
+    uri,
+    dataProperties,
+    [...nodes.values()],
+    links,
+    6,
+  )
+
   return {
     label,
     classes,
     dataProperties,
     relationTypes,
-    nodes: [...nodes.values()],
-    links,
-    message: `Knowledge graph for ${label} — ${neighborCount} connected · ${edgeCount} relations`,
+    nodes: withLits.nodes,
+    links: withLits.links,
+    message: `Knowledge graph for ${label} — ${withLits.nodes.length - 1} connected · ${withLits.links.length} relations`,
   }
 }
 
