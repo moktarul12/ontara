@@ -2,7 +2,8 @@ export interface GraphNode {
   id: string
   label: string
   uri: string
-  type: 'resource' | 'class' | 'literal'
+  /** relation = ontology property hub (Director, Genre…) between entity and values */
+  type: 'resource' | 'class' | 'literal' | 'relation'
   classes?: string[]
   dataProperties?: DataProperty[]
   x?: number
@@ -13,8 +14,16 @@ export interface GraphNode {
   fy?: number
   __degree?: number
   __pulse?: number
-  /** Hop distance from expand root (1 = direct neighbor). */
+  /**
+   * Ontology hop depth:
+   * 0 = seed entity, 1 = relation/category hubs, 2 = values, 3 = next ontology layer
+   */
   __hopDepth?: number
+  /** Groups value cards with their relation hub (Sholay-style clusters). */
+  __clusterKey?: string
+  __parentId?: string
+  __predicate?: string
+  __direction?: 'out' | 'in'
 }
 
 export interface GraphLink {

@@ -1,12 +1,12 @@
 import { HOP_STYLE } from '../utils/nodeKind'
 
-/** Legend keyed by hop ring — connected nodes share a colour. */
+/** Legend for ontology-respecting hops (Sholay-style). */
 export function GraphLegend() {
   const hops = [0, 1, 2, 3] as const
 
   return (
-    <aside className="graph-legend" aria-label="Hop colour legend">
-      <p className="legend-title">Hop rings</p>
+    <aside className="graph-legend" aria-label="Ontology hop legend">
+      <p className="legend-title">Ontology hops</p>
       <ul>
         {hops.map((h) => (
           <li key={h}>
@@ -22,7 +22,7 @@ export function GraphLegend() {
         ))}
       </ul>
       <p className="legend-note">
-        Neighbours on one ring share a colour · Edges tint to the outer hop · Labels inside cards
+        Entity → Property hub → Values. Matching colours = same property cluster.
       </p>
     </aside>
   )

@@ -28,7 +28,11 @@ export default function App() {
 
   const onNodeClick = (nodeId: string, type?: string) => {
     // Literal data-property chips are display-only
-    if (type === 'literal' || nodeId.startsWith('literal:')) return
+    if (type === 'literal' || type === 'relation' || nodeId.startsWith('literal:') || nodeId.startsWith('relhub:')) {
+      void store.selectNode(nodeId)
+      setPanelCollapsed(false)
+      return
+    }
     void store.selectNode(nodeId)
     setPanelCollapsed(false)
   }

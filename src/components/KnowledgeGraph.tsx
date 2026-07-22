@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import cytoscape, { type Core, type ElementDefinition } from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 import type { GraphData, GraphLink, GraphNode } from '../types/ontology'
-import { hopStyle, HOP_RADIUS, kindOf, labelBoxSize } from '../utils/nodeKind'
+import { hopStyle, kindOf, labelBoxSize, ontologyNodeColors, HOP_RADIUS } from '../utils/nodeKind'
 import { GraphLegend } from './GraphLegend'
 
 cytoscape.use(coseBilkent)
@@ -39,11 +39,12 @@ function buildElements(data: GraphData): ElementDefinition[] {
   const nodes: ElementDefinition[] = data.nodes.map((n) => {
     const kind = kindOf(n)
     const hop = Math.min(3, Math.max(0, n.__hopDepth ?? 0))
-    const palette = hopStyle(hop)
+    const colors = ontologyNodeColors(n)
     const isRoot = n.id === rootId
     const box = labelBoxSize(n.label, {
       root: isRoot,
       literal: n.type === 'literal',
+      relation: n.type === 'relation',
     })
     const width = box.width
     const height = box.height
@@ -56,16 +57,22 @@ function buildElements(data: GraphData): ElementDefinition[] {
         fullLabel: n.label,
         kind,
         hopDepth: hop,
-        hopBadge: hop === 0 ? 'SEED' : `H${hop}`,
+        hopBadge: hop === 0 ? 'ENTITY' : hop === 1 ? 'PROP' : hop === 2 ? 'VALUE' : `H${hop}`,
         nodeType: n.type,
         uri: n.uri,
         boxW: width,
         boxH: height,
         textMax: box.textMax,
+        clusterKey: n.__clusterKey ?? '',
+        parentId: n.__parentId ?? '',
+        fill: colors.fill,
+        border: colors.border,
+        textColor: colors.text,
       },
       classes: [
         `hop-${hop}`,
         n.type === 'literal' ? 'is-literal' : '',
+        n.type === 'relation' ? 'is-relation' : '',
         isRoot ? 'is-root' : '',
       ]
         .filter(Boolean)
@@ -73,10 +80,10 @@ function buildElements(data: GraphData): ElementDefinition[] {
       style: {
         width,
         height,
-        'background-color': palette.fill,
-        'border-color': palette.border,
-        color: palette.text,
-        shape: 'round-rectangle',
+        'background-color': colors.fill,
+        'border-color': colors.border,
+        color: colors.text,
+        shape: isRoot ? 'ellipse' : 'round-rectangle',
         'text-max-width': box.textMax,
       },
     }
@@ -120,18 +127,18 @@ function buildElements(data: GraphData): ElementDefinition[] {
   return [...nodes, ...links]
 }
 
-const CY_STYLE: cytoscape.StylesheetStyle[] = [
+const CY_STYLE = [
   {
     selector: 'node',
     style: {
       label: 'data(label)',
       'font-family': 'Outfit, system-ui, sans-serif',
       'font-size': 10,
-      'font-weight': 650,
+      'font-weight': 600,
       'text-valign': 'center',
       'text-halign': 'center',
       'text-wrap': 'wrap',
-      'text-max-width': 100,
+      'text-max-width': '100px',
       'text-margin-y': 0,
       'text-outline-width': 0,
       'border-width': 2.5,
@@ -140,22 +147,24 @@ const CY_STYLE: cytoscape.StylesheetStyle[] = [
       'corner-radius': 9,
       'overlay-padding': 3,
       'z-index': 10,
-      'shadow-blur': 10,
-      'shadow-color': 'rgba(0,0,0,0.28)',
-      'shadow-opacity': 0.4,
-      'shadow-offset-x': 0,
-      'shadow-offset-y': 2,
+    },
+  },
+  {
+    selector: 'node.is-relation',
+    style: {
+      'font-size': 10,
+      'font-weight': 700,
+      'corner-radius': 6,
+      'border-width': 0,
     },
   },
   {
     selector: 'node.is-root',
     style: {
-      'font-size': 11,
+      'font-size': 12,
       'font-weight': 700,
-      'border-width': 3.5,
-      'corner-radius': 11,
-      'shadow-blur': 16,
-      'shadow-opacity': 0.55,
+      'border-width': 3,
+      shape: 'ellipse',
     },
   },
   {
@@ -260,40 +269,71 @@ const CY_STYLE: cytoscape.StylesheetStyle[] = [
       'text-opacity': 0.14,
     },
   },
-]
+] as cytoscape.StylesheetStyle[]
 
-/** Place nodes on tight hop orbits so edges stay short. */
+/** Place seed centre, property hubs on a ring, values clustered beside each hub. */
 function placeHopOrbits(cy: Core, data: GraphData) {
   const root =
     data.nodes.find((n) => (n.__hopDepth ?? 0) === 0)?.id ?? data.nodes[0]?.id
   if (!root) return
 
-  const buckets = new Map<number, string[]>()
-  for (const n of data.nodes) {
-    const h = Math.min(3, Math.max(0, n.__hopDepth ?? 0))
-    const list = buckets.get(h) ?? []
-    list.push(n.id)
-    buckets.set(h, list)
-  }
-
-  // Slight spiral offset per ring so cards don't stack identically
-  const ringTwist = [0, -0.12, 0.18, -0.08]
+  const hubs = data.nodes.filter((n) => n.type === 'relation' && (n.__hopDepth ?? 0) === 1)
+  const values = data.nodes.filter((n) => (n.__hopDepth ?? 0) === 2)
+  const hop3 = data.nodes.filter((n) => (n.__hopDepth ?? 0) >= 3)
 
   cy.batch(() => {
-    for (const [hop, ids] of buckets) {
-      const r = HOP_RADIUS[hop as 0 | 1 | 2 | 3] ?? 145 + hop * 100
-      const twist = ringTwist[hop] ?? 0
-      ids.forEach((id, i) => {
-        const angle = twist + (i / Math.max(ids.length, 1)) * Math.PI * 2 - Math.PI / 2
-        const jitter = hop === 0 ? 0 : ((i % 3) - 1) * 6
-        const node = cy.getElementById(id)
-        if (node.empty()) return
-        node.position({
-          x: Math.cos(angle) * (r + jitter),
-          y: Math.sin(angle) * (r + jitter),
+    const rootNode = cy.getElementById(root)
+    if (rootNode.nonempty()) rootNode.position({ x: 0, y: 0 })
+
+    const hubR = HOP_RADIUS[1]
+    hubs.forEach((h, i) => {
+      const angle = (i / Math.max(hubs.length, 1)) * Math.PI * 2 - Math.PI / 2
+      const el = cy.getElementById(h.id)
+      if (el.empty()) return
+      el.position({
+        x: Math.cos(angle) * hubR,
+        y: Math.sin(angle) * hubR,
+      })
+    })
+
+    // Values fan out just beyond their parent hub (short edges)
+    const byHub = new Map<string, typeof values>()
+    for (const v of values) {
+      const key = v.__parentId || v.__clusterKey || ''
+      const list = byHub.get(key) ?? []
+      list.push(v)
+      byHub.set(key, list)
+    }
+
+    for (const [hubId, kids] of byHub) {
+      const hubEl = cy.getElementById(hubId)
+      const hubPos = hubEl.nonempty()
+        ? hubEl.position()
+        : { x: 0, y: hubR }
+      const baseAngle = Math.atan2(hubPos.y, hubPos.x)
+      kids.forEach((v, i) => {
+        const spread = (i - (kids.length - 1) / 2) * 0.28
+        const dist = 95 + (i % 2) * 18
+        const el = cy.getElementById(v.id)
+        if (el.empty()) return
+        el.position({
+          x: hubPos.x + Math.cos(baseAngle + spread) * dist,
+          y: hubPos.y + Math.sin(baseAngle + spread) * dist,
         })
       })
     }
+
+    // Hop 3 on outer ring
+    const r3 = HOP_RADIUS[3]
+    hop3.forEach((n, i) => {
+      const angle = (i / Math.max(hop3.length, 1)) * Math.PI * 2 - Math.PI / 2
+      const el = cy.getElementById(n.id)
+      if (el.empty()) return
+      el.position({
+        x: Math.cos(angle) * r3,
+        y: Math.sin(angle) * r3,
+      })
+    })
   })
 }
 
@@ -360,14 +400,12 @@ function applyHighlights(
       const boxW = Number(node.data('boxW') ?? 100)
       const boxH = Number(node.data('boxH') ?? 42)
       const bump = selected ? 8 : onPath ? 5 : 0
-      const hop = Number(node.data('hopDepth') ?? 0)
-      const palette = hopStyle(hop)
       node.style({
         width: boxW + bump,
         height: boxH + bump * 0.3,
-        'background-color': palette.fill,
-        'border-color': selected || onPath ? '#c9a227' : palette.border,
-        color: palette.text,
+        'background-color': node.data('fill'),
+        'border-color': selected || onPath ? '#c9a227' : node.data('border'),
+        color: node.data('textColor'),
         'text-max-width': Number(node.data('textMax') ?? boxW - 14),
       })
     })
@@ -545,7 +583,7 @@ export function KnowledgeGraph({
       {data.nodes.length > 0 && <GraphLegend />}
       {data.nodes.length > 0 && (
         <div className="graph-hint">
-          Same colour = same hop · Short orbits · Gold path · −/+ hops
+          Same colour cluster = property + its values · Entity → Property → Value
         </div>
       )}
     </div>

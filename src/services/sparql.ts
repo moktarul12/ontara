@@ -827,9 +827,6 @@ export async function fetchEntityKnowledgeGraph(
     }),
   )
 
-  const edgeCount = links.length
-  const neighborCount = nodes.size - 1
-
   const withLits = attachDataPropertyLiterals(
     uri,
     dataProperties,

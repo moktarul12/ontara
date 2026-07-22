@@ -9,24 +9,30 @@ interface Props {
 
 /** Hops [−][1][2][3][+] · Out / In / Both — increase & decrease both work. */
 export function HopQuick({ store }: Props) {
-  const { selectedNode, applyHops, shrinkHops, loading, graph, appliedHopDepth } = store
+  const { selectedNode, applyHops, shrinkHops, loading, graph, appliedHopDepth, pathRootId } =
+    store
   const [direction, setDirection] = useState<HopDirection>('out')
 
-  const canGrow =
-    !!selectedNode &&
-    graph.nodes.length > 0 &&
+  const hopRoot =
+    (pathRootId && graph.nodes.some((n) => n.id === pathRootId) ? pathRootId : null) ||
+    (selectedNode &&
     selectedNode.type !== 'literal' &&
+    selectedNode.type !== 'relation' &&
     !selectedNode.id.startsWith('literal:') &&
     !isOntologyClassUri(selectedNode.uri)
+      ? selectedNode.id
+      : null)
+
+  const canGrow = !!hopRoot && graph.nodes.length > 0
 
   return (
     <div
       className={`hop-quick ${canGrow ? 'ready' : 'idle'}`}
       role="group"
-      aria-label="Expand or shrink hops"
+      aria-label="Ontology hops"
     >
       <span className="hop-quick-kicker">Hops</span>
-      <span className="hop-applied" title="Current hop depth on the graph">
+      <span className="hop-applied" title="Ontology hop depth (0 entity · 1 property · 2 value)">
         {appliedHopDepth}
       </span>
       <div className="hop-bracket hop-stepper">
@@ -35,7 +41,7 @@ export function HopQuick({ store }: Props) {
           className="hop-step"
           disabled={loading || !canGrow || appliedHopDepth <= 0}
           onClick={() => shrinkHops(1)}
-          title="Decrease hops (trim outer ring)"
+          title="Decrease ontology hop"
           aria-label="Decrease hops"
         >
           −
@@ -52,11 +58,11 @@ export function HopQuick({ store }: Props) {
             }}
             aria-pressed={appliedHopDepth === n}
             title={
-              n < appliedHopDepth
-                ? `Shrink to ${n} hop${n > 1 ? 's' : ''}`
-                : n > appliedHopDepth
-                  ? `Grow to ${n} hop${n > 1 ? 's' : ''} (${direction})`
-                  : `Already at ${n}`
+              n === 1
+                ? 'Hop 1 · ontology properties'
+                : n === 2
+                  ? 'Hop 2 · property values'
+                  : 'Hop 3 · next ontology layer'
             }
           >
             {n}
@@ -70,7 +76,7 @@ export function HopQuick({ store }: Props) {
             if (!canGrow) return
             void applyHops(Math.min(3, appliedHopDepth + 1), direction)
           }}
-          title={`Increase hops (${direction})`}
+          title={`Increase ontology hop (${direction})`}
           aria-label="Increase hops"
         >
           +
@@ -91,9 +97,9 @@ export function HopQuick({ store }: Props) {
             onClick={() => setDirection(d.id)}
             title={
               d.id === 'out'
-                ? 'Outgoing relations'
+                ? 'Outgoing properties'
                 : d.id === 'in'
-                  ? 'Incoming relations'
+                  ? 'Incoming properties'
                   : 'Both directions'
             }
           >

@@ -164,7 +164,7 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
 
       {selectedNode.type !== 'class' && panelMode === 'relations' && (
         <div className="hop-recipes">
-          <p className="hop-path-kicker">Try a multi-hop walk</p>
+          <p className="hop-path-kicker">Ontology hops</p>
           <div className="hop-recipe-row">
             <button
               type="button"
@@ -172,7 +172,7 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
               disabled={loading}
               onClick={() => void applyHops(1, 'out')}
             >
-              1 hop out
+              1 · properties
             </button>
             <button
               type="button"
@@ -180,7 +180,7 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
               disabled={loading}
               onClick={() => void applyHops(2, 'out')}
             >
-              2 hops out
+              2 · values
             </button>
             <button
               type="button"
@@ -188,7 +188,7 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
               disabled={loading}
               onClick={() => void applyHops(3, 'both')}
             >
-              3 hops both
+              3 · next layer
             </button>
             <button
               type="button"
