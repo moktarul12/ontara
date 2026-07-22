@@ -7,10 +7,11 @@ export default defineConfig({
     port: 1901,
     strictPort: true,
     proxy: {
+      // Preserve query string — rewrite must NOT drop ?query=…
       '/sparql/wikidata': {
         target: 'https://query.wikidata.org',
         changeOrigin: true,
-        rewrite: () => '/sparql',
+        rewrite: (p) => p.replace(/^\/sparql\/wikidata/, '/sparql'),
         secure: true,
         headers: {
           'User-Agent': 'Ontara/1.0 (https://github.com/moktarul12/ontara)',
@@ -19,14 +20,23 @@ export default defineConfig({
       '/sparql/dbpedia': {
         target: 'https://dbpedia.org',
         changeOrigin: true,
-        rewrite: () => '/sparql',
+        rewrite: (p) => p.replace(/^\/sparql\/dbpedia/, '/sparql'),
         secure: true,
+      },
+      '/api/wikidata': {
+        target: 'https://www.wikidata.org',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/wikidata/, '/w/api.php'),
+        secure: true,
+        headers: {
+          'User-Agent': 'Ontara/1.0 (https://github.com/moktarul12/ontara)',
+        },
       },
       // back-compat
       '/sparql': {
         target: 'https://dbpedia.org',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/sparql/, '/sparql'),
+        rewrite: (p) => p.replace(/^\/sparql(?=\?|$)/, '/sparql'),
         secure: true,
       },
     },

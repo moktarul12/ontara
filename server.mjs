@@ -66,6 +66,29 @@ app.all('/sparql/wikidata', (req, res) => proxySparql(UPSTREAMS.wikidata, req, r
 app.all('/sparql/dbpedia', (req, res) => proxySparql(UPSTREAMS.dbpedia, req, res))
 app.all('/sparql', (req, res) => proxySparql(UPSTREAMS.dbpedia, req, res))
 
+/** Fast entity search — Wikidata MediaWiki API */
+app.get('/api/wikidata', async (req, res) => {
+  try {
+    const upstream = new URL('https://www.wikidata.org/w/api.php')
+    for (const [k, v] of Object.entries(req.query)) {
+      if (typeof v === 'string') upstream.searchParams.set(k, v)
+    }
+    const upstreamRes = await fetch(upstream, {
+      headers: { 'User-Agent': UA, Accept: 'application/json' },
+    })
+    const contentType = upstreamRes.headers.get('content-type')
+    if (contentType) res.setHeader('Content-Type', contentType)
+    res.status(upstreamRes.status)
+    res.send(Buffer.from(await upstreamRes.arrayBuffer()))
+  } catch (err) {
+    console.error('Wikidata API proxy error', err)
+    res.status(502).json({
+      error: 'Wikidata API proxy failed',
+      detail: err instanceof Error ? err.message : String(err),
+    })
+  }
+})
+
 app.use(express.static(dist, { index: 'index.html', maxAge: '1h' }))
 
 app.get('/{*spaPath}', (_req, res) => {

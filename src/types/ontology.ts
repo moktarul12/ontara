@@ -113,7 +113,7 @@ export const DEFAULT_CONFIG: OntologyConfig = {
   endpoint: WIKIDATA_ENDPOINT,
   seedUri: '',
   seedLabel: '',
-  startMode: 'resource',
+  startMode: 'classmap',
   source: 'wikidata',
 }
 

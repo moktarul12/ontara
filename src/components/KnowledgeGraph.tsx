@@ -7,6 +7,10 @@ interface Props {
   selectedNodeId: string | null
   highlightedLinkId: string | null
   graphEpoch?: number
+  /** Increment to unpin + re-layout + fit */
+  layoutKey?: number
+  /** Increment to zoom-to-fit only */
+  fitKey?: number
   onNodeClick: (node: GraphNode) => void
   onBackgroundClick?: () => void
 }
@@ -47,6 +51,8 @@ export function KnowledgeGraph({
   selectedNodeId,
   highlightedLinkId,
   graphEpoch = 0,
+  layoutKey = 0,
+  fitKey = 0,
   onNodeClick,
   onBackgroundClick,
 }: Props) {
@@ -152,6 +158,23 @@ export function KnowledgeGraph({
     }, 450)
     return () => window.clearTimeout(t)
   }, [graphEpoch])
+
+  // Manual reset layout
+  useEffect(() => {
+    if (layoutKey === 0) return
+    const fg = fgRef.current
+    if (!fg || nodeStore.current.size === 0) return
+    for (const n of nodeStore.current.values()) unpinNode(n)
+    fg.d3ReheatSimulation()
+    const t = window.setTimeout(() => fg.zoomToFit?.(400, 70), 500)
+    return () => window.clearTimeout(t)
+  }, [layoutKey])
+
+  // Fit view only
+  useEffect(() => {
+    if (fitKey === 0) return
+    fgRef.current?.zoomToFit?.(350, 70)
+  }, [fitKey])
 
   useEffect(() => {
     if (!selectedNodeId || !fgRef.current || dragging.current) return
@@ -324,7 +347,7 @@ export function KnowledgeGraph({
       )}
       {data.nodes.length > 0 && (
         <div className="graph-hint">
-          Drag to reposition · Scroll to zoom · Click a node for full information
+          Drag to move · Scroll to zoom · Click a node to list its relations
         </div>
       )}
     </div>

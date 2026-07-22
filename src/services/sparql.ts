@@ -33,20 +33,32 @@ const LABEL_PREDICATES = [
   'http://xmlns.com/foaf/0.1/name',
 ]
 
+const WD_CLASS_IDS = new Set([
+  'Q5',
+  'Q515',
+  'Q6256',
+  'Q43229',
+  'Q386724',
+  'Q1656682',
+  'Q2221906',
+  'Q35120',
+])
+
 export function isOntologyClassUri(uri: string): boolean {
-  return (
+  if (!uri) return false
+  if (
     uri === OWL_THING ||
     uri === WD_ENTITY ||
     uri.startsWith('http://dbpedia.org/ontology/') ||
-    uri.includes('/ontology/') ||
     uri.endsWith('#Thing') ||
-    uri.includes('owl#Class') ||
-    // Wikidata types used as class scopes (Q5, Q515, …)
-    (uri.startsWith('http://www.wikidata.org/entity/Q') &&
-      ['Q5', 'Q515', 'Q6256', 'Q43229', 'Q386724', 'Q1656682', 'Q2221906', 'Q35120'].some(
-        (q) => uri.endsWith(q),
-      ))
-  )
+    uri.includes('owl#Class')
+  ) {
+    return true
+  }
+  // Exact Wikidata Q-id match only (endsWith caused false positives, e.g. …Q143229)
+  const wd = uri.match(/\/entity\/(Q\d+)$/)
+  if (wd) return WD_CLASS_IDS.has(wd[1])
+  return false
 }
 
 export async function fetchResourceLabel(
@@ -558,6 +570,33 @@ export async function fetchEntityKnowledgeGraph(
   endpoint: string,
   uri: string,
 ): Promise<EntityKnowledgeGraph> {
+  // Wikidata: one SPARQL for the star + parallel meta
+  if (isWikidataEndpoint(endpoint)) {
+    const [star, classes, dataProperties, relationTypes] = await Promise.all([
+      wd.wdEntityStar(endpoint, uri, 40),
+      fetchResourceClasses(endpoint, uri),
+      fetchDataProperties(endpoint, uri),
+      fetchRelationTypes(endpoint, uri),
+    ])
+
+    const center = star.nodes.find((n) => n.id === uri)
+    if (center) {
+      center.classes = classes
+      center.dataProperties = dataProperties
+      center.type = isOntologyClassUri(uri) ? 'class' : 'resource'
+    }
+
+    return {
+      label: star.label,
+      classes,
+      dataProperties,
+      relationTypes,
+      nodes: star.nodes,
+      links: star.links,
+      message: `Knowledge graph for ${star.label} — ${star.nodes.length - 1} connected · ${star.links.length} relations`,
+    }
+  }
+
   const [label, classes, dataProperties, relationTypes] = await Promise.all([
     fetchResourceLabel(endpoint, uri),
     fetchResourceClasses(endpoint, uri),
@@ -774,6 +813,11 @@ export async function fetchHopLayer(
   direction: HopDirection,
   options?: { maxNodes?: number; predsPerNode?: number; neighborsPerPred?: number },
 ): Promise<{ nodes: GraphNode[]; links: GraphLink[] }> {
+  if (isWikidataEndpoint(endpoint)) {
+    const limit = (options?.maxNodes ?? 8) * (options?.neighborsPerPred ?? 4) * 2
+    return wd.wdHopLayer(endpoint, frontierUris, direction, Math.min(limit, 50))
+  }
+
   const maxNodes = options?.maxNodes ?? 10
   const predsPerNode = options?.predsPerNode ?? 4
   const neighborsPerPred = options?.neighborsPerPred ?? 3
@@ -828,7 +872,7 @@ export async function fetchHopLayer(
                   }
                 }
               } catch {
-                /* skip pred */
+                /* skip */
               }
             }),
           )

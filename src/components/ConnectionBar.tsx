@@ -54,7 +54,7 @@ export function ConnectionBar({
         </button>
         {hasGraph && (
           <button type="button" className="ghost" disabled={loading} onClick={onClear}>
-            New search
+            Reset ontology
           </button>
         )}
         <span className="endpoint-hint" title={endpoint}>

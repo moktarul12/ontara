@@ -12,7 +12,7 @@ import {
   WDT_SUBCLASS_OF,
   WIKIDATA_CORE_CLASSES,
 } from '../types/ontology'
-import { localName, runSparql } from './sparql-core'
+import { localName, runSparql, searchWikidataApi } from './sparql-core'
 
 const WDT = 'http://www.wikidata.org/prop/direct/'
 
@@ -217,55 +217,258 @@ export async function wdSearch(
   classFilter?: string,
   limit = 20,
 ): Promise<ConnectedNode[]> {
-  const q = escapeSparql(term.trim())
+  const q = term.trim()
   if (!q) return []
 
+  // Fast path: MediaWiki wbsearchentities (~200ms)
+  try {
+    const hits = await searchWikidataApi(q, Math.min(limit * 2, 20))
+    let mapped: ConnectedNode[] = hits.map((h) => ({
+      uri: `http://www.wikidata.org/entity/${h.id}`,
+      label: h.label,
+      typeLabel: h.description,
+    }))
+
+    // Optional class filter via one SPARQL check on top hits
+    if (classFilter && mapped.length) {
+      const values = mapped
+        .slice(0, 16)
+        .map((m) => `<${m.uri}>`)
+        .join(' ')
+      const filterQ = `
+        SELECT DISTINCT ?item WHERE {
+          VALUES ?item { ${values} }
+          ?item <${WDT_INSTANCE_OF}>/<${WDT_SUBCLASS_OF}>* <${classFilter}> .
+        }
+      `
+      try {
+        const rows = await runSparql(endpoint, filterQ, 8000)
+        const ok = new Set(rows.map((r) => r.item.value))
+        mapped = mapped.filter((m) => ok.has(m.uri))
+      } catch {
+        /* keep unfiltered hits */
+      }
+    }
+
+    if (mapped.length) return mapped.slice(0, limit)
+  } catch {
+    /* fall through to SPARQL */
+  }
+
+  const escaped = escapeSparql(q)
   const typeFilter = classFilter
     ? `?item <${WDT_INSTANCE_OF}>/<${WDT_SUBCLASS_OF}>* <${classFilter}> .`
     : ''
-
-  const query = `
-    SELECT DISTINCT ?item ?itemLabel WHERE {
-      SERVICE wikibase:mwapi {
-        bd:serviceParam wikibase:api "EntitySearch" .
-        bd:serviceParam wikibase:endpoint "www.wikidata.org" .
-        bd:serviceParam mwapi:search "${q}" .
-        bd:serviceParam mwapi:language "en" .
-        bd:serviceParam mwapi:limit "${Math.min(limit, 20)}" .
-        ?item wikibase:apiOutputItem mwapi:item .
-      }
+  const fallback = `
+    SELECT DISTINCT ?item ?label WHERE {
       ${typeFilter}
-      SERVICE wikibase:label { bd:serviceParam wikibase:language "en" . }
+      ?item <http://www.w3.org/2000/01/rdf-schema#label> ?label .
+      FILTER(LANG(?label) = "en")
+      FILTER(CONTAINS(LCASE(STR(?label)), LCASE("${escaped}")))
+    } LIMIT ${limit}
+  `
+  try {
+    const rows = await runSparql(endpoint, fallback, 12000)
+    return rows.map((r) => ({
+      uri: r.item.value,
+      label: r.label?.value || localName(r.item.value),
+    }))
+  } catch {
+    return []
+  }
+}
+
+/** One SPARQL query: 1-hop star (outgoing + a few incoming). */
+export async function wdEntityStar(
+  endpoint: string,
+  uri: string,
+  limit = 36,
+): Promise<{ nodes: GraphNode[]; links: GraphLink[]; label: string }> {
+  const query = `
+    SELECT ?p ?propLabel ?o ?oLabel ?dir WHERE {
+      {
+        BIND("out" AS ?dir)
+        <${uri}> ?p ?o .
+        FILTER(STRSTARTS(STR(?p), "${WDT}"))
+        FILTER(isIRI(?o))
+      } UNION {
+        BIND("in" AS ?dir)
+        ?o ?p <${uri}> .
+        FILTER(STRSTARTS(STR(?p), "${WDT}"))
+        FILTER(isIRI(?o))
+      }
+      OPTIONAL {
+        ?prop <http://wikiba.se/ontology#directClaim> ?p .
+        ?prop <http://www.w3.org/2000/01/rdf-schema#label> ?propLabel
+        FILTER(LANG(?propLabel) = "en")
+      }
+      OPTIONAL {
+        ?o <http://www.w3.org/2000/01/rdf-schema#label> ?oLabel
+        FILTER(LANG(?oLabel) = "en")
+      }
     } LIMIT ${limit}
   `
 
-  try {
-    const rows = await runSparql(endpoint, query, 15000)
-    return rows.map((r) => ({
-      uri: r.item.value,
-      label: r.itemLabel?.value || localName(r.item.value),
-      typeLabel: classFilter ? localName(classFilter) : undefined,
-    }))
-  } catch {
-    // Fallback: English label CONTAINS
-    const fallback = `
-      SELECT DISTINCT ?item ?label WHERE {
-        ${classFilter ? `?item <${WDT_INSTANCE_OF}>/<${WDT_SUBCLASS_OF}>* <${classFilter}> .` : ''}
-        ?item <http://www.w3.org/2000/01/rdf-schema#label> ?label .
-        FILTER(LANG(?label) = "en")
-        FILTER(CONTAINS(LCASE(STR(?label)), LCASE("${q}")))
-      } LIMIT ${limit}
-    `
-    try {
-      const rows = await runSparql(endpoint, fallback, 15000)
-      return rows.map((r) => ({
-        uri: r.item.value,
-        label: r.label?.value || localName(r.item.value),
-      }))
-    } catch {
-      return []
+  const labelPromise = wdLabel(endpoint, uri)
+  const rows = await runSparql(endpoint, query, 14000)
+  const label = await labelPromise
+
+  const nodes = new Map<string, GraphNode>()
+  const links: GraphLink[] = []
+  nodes.set(uri, {
+    id: uri,
+    uri,
+    label,
+    type: 'resource',
+    __pulse: 1,
+  })
+
+  for (const r of rows) {
+    const o = r.o.value
+    const p = r.p.value
+    const dir = r.dir?.value === 'in' ? 'in' : 'out'
+    if (!nodes.has(o)) {
+      nodes.set(o, {
+        id: o,
+        uri: o,
+        label: r.oLabel?.value || localName(o),
+        type: 'resource',
+      })
+    }
+    const from = dir === 'out' ? uri : o
+    const to = dir === 'out' ? o : uri
+    const id = linkId(from, p, to)
+    if (!links.some((l) => l.id === id)) {
+      links.push({
+        id,
+        source: from,
+        target: to,
+        predicate: p,
+        predicateLabel: r.propLabel?.value || localName(p),
+      })
     }
   }
+
+  return { nodes: [...nodes.values()], links, label }
+}
+
+/** One SPARQL query for a BFS hop from frontier URIs. */
+export async function wdHopLayer(
+  endpoint: string,
+  frontierUris: string[],
+  direction: 'out' | 'in' | 'both',
+  limit = 40,
+): Promise<{ nodes: GraphNode[]; links: GraphLink[] }> {
+  const slice = frontierUris.slice(0, 8)
+  if (!slice.length) return { nodes: [], links: [] }
+
+  const values = slice.map((u) => `<${u}>`).join(' ')
+
+  let query: string
+  if (direction === 'out') {
+    query = `
+      SELECT ?s ?p ?propLabel ?o ?oLabel WHERE {
+        VALUES ?s { ${values} }
+        ?s ?p ?o .
+        FILTER(STRSTARTS(STR(?p), "${WDT}"))
+        FILTER(isIRI(?o))
+        OPTIONAL {
+          ?prop <http://wikiba.se/ontology#directClaim> ?p .
+          ?prop <http://www.w3.org/2000/01/rdf-schema#label> ?propLabel
+          FILTER(LANG(?propLabel) = "en")
+        }
+        OPTIONAL {
+          ?o <http://www.w3.org/2000/01/rdf-schema#label> ?oLabel
+          FILTER(LANG(?oLabel) = "en")
+        }
+        BIND("out" AS ?dir)
+      } LIMIT ${limit}
+    `
+  } else if (direction === 'in') {
+    query = `
+      SELECT ?s ?p ?propLabel ?o ?oLabel WHERE {
+        VALUES ?center { ${values} }
+        ?o ?p ?center .
+        FILTER(STRSTARTS(STR(?p), "${WDT}"))
+        FILTER(isIRI(?o))
+        BIND(?center AS ?s)
+        OPTIONAL {
+          ?prop <http://wikiba.se/ontology#directClaim> ?p .
+          ?prop <http://www.w3.org/2000/01/rdf-schema#label> ?propLabel
+          FILTER(LANG(?propLabel) = "en")
+        }
+        OPTIONAL {
+          ?o <http://www.w3.org/2000/01/rdf-schema#label> ?oLabel
+          FILTER(LANG(?oLabel) = "en")
+        }
+        BIND("in" AS ?dir)
+      } LIMIT ${limit}
+    `
+  } else {
+    query = `
+      SELECT ?s ?p ?propLabel ?o ?oLabel ?dir WHERE {
+        {
+          BIND("out" AS ?dir)
+          VALUES ?s { ${values} }
+          ?s ?p ?o .
+          FILTER(STRSTARTS(STR(?p), "${WDT}"))
+          FILTER(isIRI(?o))
+        } UNION {
+          BIND("in" AS ?dir)
+          VALUES ?center { ${values} }
+          ?o ?p ?center .
+          FILTER(STRSTARTS(STR(?p), "${WDT}"))
+          FILTER(isIRI(?o))
+          BIND(?center AS ?s)
+        }
+        OPTIONAL {
+          ?prop <http://wikiba.se/ontology#directClaim> ?p .
+          ?prop <http://www.w3.org/2000/01/rdf-schema#label> ?propLabel
+          FILTER(LANG(?propLabel) = "en")
+        }
+        OPTIONAL {
+          ?o <http://www.w3.org/2000/01/rdf-schema#label> ?oLabel
+          FILTER(LANG(?oLabel) = "en")
+        }
+      } LIMIT ${limit}
+    `
+  }
+
+  const rows = await runSparql(endpoint, query, 14000)
+  const nodes = new Map<string, GraphNode>()
+  const links: GraphLink[] = []
+
+  for (const r of rows) {
+    const center = r.s.value
+    const neighbor = r.o.value
+    const p = r.p.value
+    const dir = r.dir?.value === 'in' || direction === 'in' ? 'in' : 'out'
+
+    if (!nodes.has(neighbor)) {
+      nodes.set(neighbor, {
+        id: neighbor,
+        uri: neighbor,
+        label: r.oLabel?.value || localName(neighbor),
+        type: 'resource',
+        __pulse: 1,
+      })
+    }
+
+    const from = dir === 'out' ? center : neighbor
+    const to = dir === 'out' ? neighbor : center
+    const id = linkId(from, p, to)
+    if (!links.some((l) => l.id === id)) {
+      links.push({
+        id,
+        source: from,
+        target: to,
+        predicate: p,
+        predicateLabel: r.propLabel?.value || localName(p),
+      })
+    }
+  }
+
+  return { nodes: [...nodes.values()], links }
 }
 
 export async function wdSearchInContext(
@@ -355,7 +558,7 @@ export async function wdSearchInContext(
   }
 }
 
-export async function wdClassMap(endpoint: string): Promise<{
+export async function wdClassMap(_endpoint: string): Promise<{
   nodes: GraphNode[]
   links: GraphLink[]
   rootId: string
@@ -389,30 +592,6 @@ export async function wdClassMap(endpoint: string): Promise<{
     })
   }
 
-  // Enrich a couple hubs with live subclasses
-  for (const hub of [
-    'http://www.wikidata.org/entity/Q5',
-    'http://www.wikidata.org/entity/Q515',
-  ]) {
-    try {
-      const subs = await wdConnectedNodes(endpoint, hub, WDT_SUBCLASS_OF, 'in', 4)
-      for (const s of subs) {
-        ensure(s.uri, s.label)
-        const id = linkId(s.uri, WDT_SUBCLASS_OF, hub)
-        if (!links.some((l) => l.id === id)) {
-          links.push({
-            id,
-            source: s.uri,
-            target: hub,
-            predicate: WDT_SUBCLASS_OF,
-            predicateLabel: 'subclass of',
-          })
-        }
-      }
-    } catch {
-      /* curated only */
-    }
-  }
-
+  // Curated map only — skip live enrich (keeps bootstrap fast)
   return { nodes: [...nodes.values()], links, rootId: WD_ENTITY }
 }

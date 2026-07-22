@@ -274,7 +274,7 @@ export function useOntologyStore() {
           type: 'RESET_GRAPH',
           graph: { nodes: kg.nodes, links: kg.links },
           seedId: uri,
-          panelMode: 'details',
+          panelMode: 'relations',
           message: kg.message,
           bumpEpoch: true,
         })
@@ -286,8 +286,7 @@ export function useOntologyStore() {
           classes: kg.classes,
           dataProperties: kg.dataProperties,
         })
-        // Keep details as the primary panel after relations load
-        dispatch({ type: 'SET_PANEL', mode: 'details' })
+        dispatch({ type: 'SET_PANEL', mode: 'relations' })
       } catch (err) {
         if (gen !== selectGen.current) return
         dispatch({
@@ -498,7 +497,10 @@ export function useOntologyStore() {
 
       try {
         let frontier = [state.selectedNodeId]
-        const seen = new Set(state.graph.nodes.map((n) => n.id))
+        // Track nodes we already used as hop sources (not merely drawn on canvas).
+        // Star KG already has 1-hop neighbors — we must still walk through them for hop 2/3.
+        const expandedFrom = new Set<string>()
+        const known = new Set(state.graph.nodes.map((n) => n.id))
         let totalAdded = 0
         let totalEdges = 0
 
@@ -509,24 +511,38 @@ export function useOntologyStore() {
             message: `Hop ${depth}/${hops} (${direction})…`,
           })
           const layer = await fetchHopLayer(state.config.endpoint, frontier, direction, {
-            maxNodes: depth === 1 ? 1 : 8,
-            predsPerNode: 4,
-            neighborsPerPred: 3,
+            maxNodes: depth === 1 ? 1 : 6,
+            predsPerNode: 5,
+            neighborsPerPred: 5,
           })
 
-          const newNodes = layer.nodes.filter((n) => !seen.has(n.id))
-          for (const n of newNodes) seen.add(n.id)
-          totalAdded += newNodes.length
+          let addedHere = 0
+          for (const n of layer.nodes) {
+            if (!known.has(n.id)) {
+              known.add(n.id)
+              addedHere += 1
+            }
+          }
+          totalAdded += addedHere
           totalEdges += layer.links.length
 
           dispatch({
             type: 'ADD_NODES',
             nodes: layer.nodes,
             links: layer.links,
-            message: `Hop ${depth}: +${newNodes.length} nodes`,
+            message: `Hop ${depth}: +${addedHere} nodes · ${layer.links.length} edges`,
           })
 
-          frontier = layer.nodes.map((n) => n.id).filter((id) => id !== state.selectedNodeId)
+          for (const f of frontier) expandedFrom.add(f)
+
+          const next: string[] = []
+          const nextSeen = new Set<string>()
+          for (const n of layer.nodes) {
+            if (expandedFrom.has(n.id) || nextSeen.has(n.id)) continue
+            nextSeen.add(n.id)
+            next.push(n.id)
+          }
+          frontier = next.slice(0, 8)
           if (!frontier.length) break
         }
 
@@ -534,7 +550,7 @@ export function useOntologyStore() {
           type: 'ADD_NODES',
           nodes: [],
           links: [],
-          message: `Expanded ${hops} hop${hops > 1 ? 's' : ''} (${direction}) — +${totalAdded} nodes, ${totalEdges} edges`,
+          message: `Expanded ${hops} hop${hops > 1 ? 's' : ''} (${direction}) — +${totalAdded} nodes · ${totalEdges} edges`,
         })
       } catch (err) {
         dispatch({
@@ -550,7 +566,6 @@ export function useOntologyStore() {
 
   const openRelation = useCallback(
     async (relation: RelationType) => {
-      // Browse-only path (list without auto-add)
       if (!state.selectedNodeId) return
       dispatch({ type: 'SET_ACTIVE_RELATION', relation })
       dispatch({ type: 'SET_LOADING', loading: true, message: 'Fetching connected nodes…' })
@@ -560,9 +575,11 @@ export function useOntologyStore() {
           state.selectedNodeId,
           relation.predicate,
           relation.direction,
-          20,
+          40,
         )
         dispatch({ type: 'SET_NEIGHBORS', neighbors })
+        // Pre-select all so "Add selected" works immediately; user can uncheck
+        dispatch({ type: 'SELECT_ALL_NEIGHBORS', selected: true })
       } catch (err) {
         dispatch({
           type: 'SET_ERROR',
@@ -598,13 +615,28 @@ export function useOntologyStore() {
       links,
       message: `Added ${toAdd.length} selected node${toAdd.length === 1 ? '' : 's'} with edges`,
     })
-    dispatch({ type: 'SELECT_ALL_NEIGHBORS', selected: false })
   }, [
     state.selectedNodeId,
     state.activeRelation,
     state.neighbors,
     state.selectedNeighborUris,
   ])
+
+  const addAllNeighbors = useCallback(() => {
+    if (!state.selectedNodeId || !state.activeRelation || !state.neighbors.length) return
+    const { nodes, links } = toGraphPieces(
+      state.selectedNodeId,
+      state.activeRelation,
+      state.neighbors,
+    )
+    dispatch({
+      type: 'ADD_NODES',
+      nodes,
+      links,
+      message: `Added all ${state.neighbors.length} connected node${state.neighbors.length === 1 ? '' : 's'}`,
+    })
+    dispatch({ type: 'SELECT_ALL_NEIGHBORS', selected: true })
+  }, [state.selectedNodeId, state.activeRelation, state.neighbors])
 
   const addSingleNeighbor = useCallback(
     (neighbor: ConnectedNode) => {
@@ -688,6 +720,7 @@ export function useOntologyStore() {
     toggleNeighbor,
     selectAllNeighbors,
     addSelectedNeighbors,
+    addAllNeighbors,
     addSingleNeighbor,
     addSearchResult,
     showDetails,
