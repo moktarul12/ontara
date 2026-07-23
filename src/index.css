@@ -1564,6 +1564,11 @@ button {
   margin-bottom: 0.15rem;
 }
 
+.legend-swatch.pill {
+  border-radius: 999px;
+  height: 10px;
+}
+
 .legend-swatch.thin {
   width: 14px;
   height: 10px;

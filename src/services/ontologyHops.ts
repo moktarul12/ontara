@@ -38,23 +38,28 @@ function cleanPredLabel(label: string) {
   return label.replace(/\s*\(.*\)$/, '').trim() || label
 }
 
-/** Stable palette index from cluster key for matching hub ↔ value colours. */
+function hashLit(s: string) {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0
+  return h.toString(36)
+}
+
 export function clusterColorIndex(key: string): number {
   let h = 0
   for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0
   return h % CLUSTER_PALETTE.length
 }
 
-/** Sholay-style category colours — hub fill solid, values white + same border. */
+/** Property-cluster colours — hub solid; values share the border. */
 export const CLUSTER_PALETTE = [
-  { fill: '#2f9e6b', border: '#2f9e6b', text: '#ffffff', valueFill: '#ffffff', valueText: '#1a3d2e' },
-  { fill: '#c45b8c', border: '#c45b8c', text: '#ffffff', valueFill: '#ffffff', valueText: '#4a1f35' },
-  { fill: '#d4782a', border: '#d4782a', text: '#ffffff', valueFill: '#ffffff', valueText: '#5c3010' },
-  { fill: '#5b6bc7', border: '#5b6bc7', text: '#ffffff', valueFill: '#ffffff', valueText: '#1e2558' },
-  { fill: '#8b5cb8', border: '#8b5cb8', text: '#ffffff', valueFill: '#ffffff', valueText: '#3a1f52' },
-  { fill: '#2a9a9e', border: '#2a9a9e', text: '#ffffff', valueFill: '#ffffff', valueText: '#0d3d40' },
-  { fill: '#b85c5c', border: '#b85c5c', text: '#ffffff', valueFill: '#ffffff', valueText: '#4a1f1f' },
-  { fill: '#6b8f3a', border: '#6b8f3a', text: '#ffffff', valueFill: '#ffffff', valueText: '#2a3d14' },
+  { fill: '#1f6b52', border: '#3ddc97', text: '#ffffff', valueFill: '#f4fbf8', valueText: '#0d3d32' },
+  { fill: '#8a3d5c', border: '#e07a9e', text: '#ffffff', valueFill: '#fdf6f9', valueText: '#4a1f35' },
+  { fill: '#a65c20', border: '#e8a05a', text: '#ffffff', valueFill: '#fff8f0', valueText: '#5c3010' },
+  { fill: '#2f4f7a', border: '#7eb0d4', text: '#ffffff', valueFill: '#f4f8fc', valueText: '#1e2558' },
+  { fill: '#5c3d7a', border: '#b48ad4', text: '#ffffff', valueFill: '#f8f4fc', valueText: '#3a1f52' },
+  { fill: '#1f6a6e', border: '#4ec4c8', text: '#ffffff', valueFill: '#f2fafb', valueText: '#0d3d40' },
+  { fill: '#7a3d3d', border: '#d48a8a', text: '#ffffff', valueFill: '#fdf6f6', valueText: '#4a1f1f' },
+  { fill: '#4a5c28', border: '#9ab85a', text: '#ffffff', valueFill: '#f6faf0', valueText: '#2a3d14' },
 ] as const
 
 function pickRelations(
@@ -69,7 +74,6 @@ function pickRelations(
     const slice = types.filter((t) => t.direction === d).slice(0, Math.ceil(limit / dirs.length))
     out.push(...slice)
   }
-  // de-dupe by predicate+direction
   const seen = new Set<string>()
   return out.filter((r) => {
     const k = `${r.direction}:${r.predicate}`
@@ -79,12 +83,17 @@ function pickRelations(
   })
 }
 
-/** Hop 1 — ontology relation / category hubs under a subject entity. */
+/**
+ * Property hub chips under a subject.
+ * `__hopDepth` = entity-distance of the values hanging off this hub (hubs do not add hop).
+ * Edge labels left empty — the hub chip carries the predicate name.
+ */
 export function buildRelationHubs(
   subjectUri: string,
   relations: RelationType[],
   direction: HopDirection,
-  limit = 10,
+  limit = 6,
+  entityHop = 1,
 ): { nodes: GraphNode[]; links: GraphLink[] } {
   const picked = pickRelations(relations, direction, limit)
   const nodes: GraphNode[] = []
@@ -98,8 +107,8 @@ export function buildRelationHubs(
       uri: rel.predicate,
       label,
       type: 'relation',
-      classes: [rel.direction === 'out' ? 'Outgoing property' : 'Incoming property'],
-      __hopDepth: 1,
+      classes: [rel.direction === 'out' ? 'Outgoing' : 'Incoming'],
+      __hopDepth: entityHop,
       __clusterKey: id,
       __parentId: subjectUri,
       __predicate: rel.predicate,
@@ -111,20 +120,21 @@ export function buildRelationHubs(
       source: subjectUri,
       target: id,
       predicate: rel.predicate,
-      predicateLabel: label,
+      predicateLabel: '', // silent — hub shows the name
     })
   }
 
   return { nodes, links }
 }
 
-/** Data-property hubs (Language, Release year…) as ontology categories. */
+/** Short literal facts as hub + value (subject-scoped literal ids). */
 export function buildDataPropertyHubs(
   subjectUri: string,
   dataProperties: DataProperty[],
-  limit = 5,
+  limit = 3,
+  entityHop = 1,
 ): { nodes: GraphNode[]; links: GraphLink[]; valueNodes: GraphNode[]; valueLinks: GraphLink[] } {
-  const skip = /description|abstract|comment|wiki/i
+  const skip = /description|abstract|comment|wiki|image/i
   const hubs: GraphNode[] = []
   const hubLinks: GraphLink[] = []
   const valueNodes: GraphNode[] = []
@@ -135,8 +145,7 @@ export function buildDataPropertyHubs(
     if (n >= limit) break
     if (skip.test(p.predicateLabel) || skip.test(p.predicate)) continue
     const value = p.value.trim()
-    if (!value || value.length > 80) continue
-    if (value.length > 48 && !/^\d/.test(value)) continue
+    if (!value || value.length > 48) continue
 
     const hubId = relationHubId(subjectUri, p.predicate, 'out')
     if (hubs.some((h) => h.id === hubId)) continue
@@ -147,8 +156,8 @@ export function buildDataPropertyHubs(
       uri: p.predicate,
       label,
       type: 'relation',
-      classes: ['Data property'],
-      __hopDepth: 1,
+      classes: ['Data'],
+      __hopDepth: entityHop,
       __clusterKey: hubId,
       __parentId: subjectUri,
       __predicate: p.predicate,
@@ -160,17 +169,17 @@ export function buildDataPropertyHubs(
       source: subjectUri,
       target: hubId,
       predicate: p.predicate,
-      predicateLabel: label,
+      predicateLabel: '',
     })
 
-    const litId = `literal:${p.predicate}:${value.slice(0, 64)}`
+    const litId = `literal:${subjectUri}:${p.predicate}:${hashLit(value)}`
     valueNodes.push({
       id: litId,
       uri: litId,
-      label: value.length > 28 ? `${value.slice(0, 26)}…` : value,
+      label: value.length > 26 ? `${value.slice(0, 24)}…` : value,
       type: 'literal',
       classes: [label],
-      __hopDepth: 2,
+      __hopDepth: entityHop,
       __clusterKey: hubId,
       __parentId: hubId,
       __predicate: p.predicate,
@@ -181,7 +190,7 @@ export function buildDataPropertyHubs(
       source: hubId,
       target: litId,
       predicate: p.predicate,
-      predicateLabel: label,
+      predicateLabel: '',
     })
     n += 1
   }
@@ -189,14 +198,15 @@ export function buildDataPropertyHubs(
   return { nodes: hubs, links: hubLinks, valueNodes, valueLinks }
 }
 
-/** Hop 2 — values under relation hubs (ontology objects). */
+/** Values under relation hubs — stamped with the hub’s entity hop. */
 export async function expandRelationHubValues(
   endpoint: string,
   hubs: GraphNode[],
-  neighborsPerHub = 5,
+  neighborsPerHub = 3,
 ): Promise<{ nodes: GraphNode[]; links: GraphLink[] }> {
   const nodes: GraphNode[] = []
   const links: GraphLink[] = []
+  const seenPair = new Set<string>()
   const relHubs = hubs.filter((h) => h.type === 'relation' && h.__parentId && h.__predicate)
 
   await Promise.all(
@@ -204,7 +214,7 @@ export async function expandRelationHubValues(
       const subject = hub.__parentId!
       const predicate = hub.__predicate!
       const direction = hub.__direction ?? 'out'
-      // Skip if this hub already got literal values via data props path
+      const hop = hub.__hopDepth ?? 1
       try {
         const neighbors = await fetchConnectedNodes(
           endpoint,
@@ -214,25 +224,31 @@ export async function expandRelationHubValues(
           neighborsPerHub,
         )
         for (const n of neighbors) {
-          if (nodes.some((x) => x.id === n.uri) || n.uri === subject) continue
-          nodes.push({
-            id: n.uri,
-            uri: n.uri,
-            label: n.label,
-            type: isOntologyClassUri(n.uri) ? 'class' : 'resource',
-            classes: n.typeLabel ? [n.typeLabel] : undefined,
-            __hopDepth: 2,
-            __clusterKey: hub.id,
-            __parentId: hub.id,
-            __predicate: predicate,
-            __pulse: 1,
-          })
+          if (n.uri === subject) continue
+          const pair = `${hub.id}|${n.uri}`
+          if (seenPair.has(pair)) continue
+          seenPair.add(pair)
+          // One global node per URI; first hub wins parent for layout
+          if (!nodes.some((x) => x.id === n.uri)) {
+            nodes.push({
+              id: n.uri,
+              uri: n.uri,
+              label: n.label,
+              type: isOntologyClassUri(n.uri) ? 'class' : 'resource',
+              classes: n.typeLabel ? [n.typeLabel] : undefined,
+              __hopDepth: hop,
+              __clusterKey: hub.id,
+              __parentId: hub.id,
+              __predicate: predicate,
+              __pulse: 1,
+            })
+          }
           links.push({
             id: linkId(hub.id, predicate, n.uri),
             source: hub.id,
             target: n.uri,
             predicate,
-            predicateLabel: hub.label,
+            predicateLabel: '',
           })
         }
       } catch {
@@ -246,10 +262,7 @@ export async function expandRelationHubValues(
 
 /**
  * One entity-distance hop from frontier entities.
- * Out  = follow outgoing properties only
- * In   = follow incoming only
- * Both = both directions
- * Each hop adds Property hubs + Value entities (ontology-shaped).
+ * Hub chips do not increment hop — only entity/literal values sit at `depth`.
  */
 export async function expandEntityHopLayer(
   endpoint: string,
@@ -262,9 +275,9 @@ export async function expandEntityHopLayer(
     neighborsPerPred?: number
   },
 ): Promise<{ nodes: GraphNode[]; links: GraphLink[]; nextFrontier: string[]; exhausted: boolean }> {
-  const maxSubjects = opts?.maxSubjects ?? 6
+  const maxSubjects = opts?.maxSubjects ?? 5
   const predsPerSubject = opts?.predsPerSubject ?? (direction === 'both' ? 3 : 4)
-  const neighborsPerPred = opts?.neighborsPerPred ?? 4
+  const neighborsPerPred = opts?.neighborsPerPred ?? 3
 
   const subjects = frontierEntityIds
     .filter((id) => !isRelationHubId(id) && !id.startsWith('literal:'))
@@ -279,9 +292,14 @@ export async function expandEntityHopLayer(
     subjects.map(async (subjectUri) => {
       try {
         const types = await fetchRelationTypes(endpoint, subjectUri)
-        const hubs = buildRelationHubs(subjectUri, types, direction, predsPerSubject)
-        const stampedHubs = hubs.nodes.map((h) => ({ ...h, __hopDepth: depth }))
-        for (const h of stampedHubs) {
+        const hubs = buildRelationHubs(
+          subjectUri,
+          types,
+          direction,
+          predsPerSubject,
+          depth,
+        )
+        for (const h of hubs.nodes) {
           if (seen.has(h.id)) continue
           seen.add(h.id)
           nodes.push(h)
@@ -292,7 +310,7 @@ export async function expandEntityHopLayer(
           links.push(l)
         }
 
-        const vals = await expandRelationHubValues(endpoint, stampedHubs, neighborsPerPred)
+        const vals = await expandRelationHubValues(endpoint, hubs.nodes, neighborsPerPred)
         for (const v of vals.nodes) {
           if (seen.has(v.id)) continue
           seen.add(v.id)
@@ -318,7 +336,7 @@ export async function expandEntityHopLayer(
   }
 }
 
-/** Attach neighbors under a property hub (Entity → Property → Values). */
+/** Attach neighbors under a property hub (Entity → Property chip → Values). */
 export function graphPiecesViaHub(
   subjectUri: string,
   relation: RelationType,
@@ -332,7 +350,7 @@ export function graphPiecesViaHub(
     uri: relation.predicate,
     label,
     type: 'relation',
-    classes: [relation.direction === 'out' ? 'Outgoing property' : 'Incoming property'],
+    classes: [relation.direction === 'out' ? 'Outgoing' : 'Incoming'],
     __hopDepth: hopDepth,
     __clusterKey: hubId,
     __parentId: subjectUri,
@@ -358,21 +376,25 @@ export function graphPiecesViaHub(
       source: subjectUri,
       target: hubId,
       predicate: relation.predicate,
-      predicateLabel: label,
+      predicateLabel: '',
     },
     ...items.map((n) => ({
       id: linkId(hubId, relation.predicate, n.uri),
       source: hubId,
       target: n.uri,
       predicate: relation.predicate,
-      predicateLabel: label,
+      predicateLabel: '',
     })),
   ]
   return { nodes: [hub, ...valueNodes], links }
 }
 
-/** Max entity-distance hops from the seed (stop earlier when SPARQL has no more data). */
 export const MAX_ONTOLOGY_HOPS = 5
+
+/** Sparse seed defaults — readable first paint. */
+export const SEED_PRED_LIMIT = 6
+export const SEED_VALUES_PER_PRED = 3
+export const SEED_DATA_LIMIT = 3
 
 export interface OntologyKnowledgeGraph {
   label: string
@@ -382,13 +404,12 @@ export interface OntologyKnowledgeGraph {
   nodes: GraphNode[]
   links: GraphLink[]
   message: string
-  /** Entity-distance hop depth (1 = seed’s properties + values). */
   appliedHopDepth: number
 }
 
 /**
- * Seed → one entity hop: property hubs + values (depth 1).
- * Further hops grow from those values via expandEntityHopLayer.
+ * Sparse seed graph: entity + top properties + a few values each.
+ * Hop 0 = seed · Hop 1 = direct neighbors (hubs are chips, not an extra hop).
  */
 export async function fetchOntologyKnowledgeGraph(
   endpoint: string,
@@ -427,11 +448,15 @@ export async function fetchOntologyKnowledgeGraph(
     __pulse: 1,
   }
 
-  const hubLimit = direction === 'both' ? 12 : 10
-  const objectHubs = buildRelationHubs(uri, relationTypes, direction, hubLimit)
-  const dataHubs = buildDataPropertyHubs(uri, dataProperties, 5)
+  const objectHubs = buildRelationHubs(
+    uri,
+    relationTypes,
+    direction,
+    SEED_PRED_LIMIT,
+    1,
+  )
+  const dataHubs = buildDataPropertyHubs(uri, dataProperties, SEED_DATA_LIMIT, 1)
 
-  // Avoid duplicate hub ids between object + data props
   const hubNodes = [...objectHubs.nodes]
   const hubLinks = [...objectHubs.links]
   for (const h of dataHubs.nodes) {
@@ -444,7 +469,7 @@ export async function fetchOntologyKnowledgeGraph(
   const objectValues = await expandRelationHubValues(
     endpoint,
     objectHubs.nodes,
-    direction === 'both' ? 4 : 5,
+    SEED_VALUES_PER_PRED,
   )
 
   const nodeMap = new Map<string, GraphNode>([[uri, center]])
@@ -457,9 +482,8 @@ export async function fetchOntologyKnowledgeGraph(
     if (!linkMap.has(l.id)) linkMap.set(l.id, l)
   }
 
-  const nodes = [...nodeMap.values()].map((n) =>
-    n.id === uri ? n : { ...n, __hopDepth: 1 },
-  )
+  // Keep stamped hops: seed 0, hubs+values at entity hop 1 (no flatten overwrite)
+  const nodes = [...nodeMap.values()]
   const links = [...linkMap.values()]
   const hubCount = nodes.filter((n) => n.type === 'relation').length
   const valueCount = nodes.filter((n) => n.type !== 'relation' && n.id !== uri).length
@@ -472,6 +496,6 @@ export async function fetchOntologyKnowledgeGraph(
     nodes,
     links,
     appliedHopDepth: 1,
-    message: `Ontology graph · ${hubCount} properties · ${valueCount} values (Entity → Property → Value)`,
+    message: `Started sparse · ${hubCount} properties · ${valueCount} values · expand to grow`,
   }
 }

@@ -15,8 +15,8 @@ export interface GraphNode {
   __degree?: number
   __pulse?: number
   /**
-   * Ontology hop depth:
-   * 0 = seed entity, 1 = relation/category hubs, 2 = values, 3 = next ontology layer
+   * Entity-distance hop from seed (hubs are view chips and do not add hop).
+   * 0 = seed, 1 = direct neighbors, 2+ = further entities.
    */
   __hopDepth?: number
   /** Groups value cards with their relation hub (Sholay-style clusters). */

@@ -27,7 +27,6 @@ export function kindOf(node: GraphNode): NodeKind {
   return 'entity'
 }
 
-/** Soft hop ring tints for edges / deep layers. */
 export const HOP_STYLE: Record<
   number,
   { fill: string; border: string; text: string; edge: string; glow: string; label: string }
@@ -36,48 +35,48 @@ export const HOP_STYLE: Record<
     fill: '#14282c',
     border: '#e8c56a',
     text: '#fff8e8',
-    edge: 'rgba(232, 197, 106, 0.75)',
-    glow: 'rgba(232, 197, 106, 0.35)',
-    label: 'Seed entity',
+    edge: 'rgba(232, 197, 106, 0.55)',
+    glow: 'rgba(232, 197, 106, 0.3)',
+    label: 'Seed',
   },
   1: {
-    fill: '#1a4a42',
-    border: '#3ddc97',
-    text: '#e8fff6',
-    edge: 'rgba(61, 220, 151, 0.7)',
-    glow: 'rgba(61, 220, 151, 0.28)',
+    fill: '#f4fbf8',
+    border: '#1a9b8e',
+    text: '#102226',
+    edge: 'rgba(61, 220, 151, 0.45)',
+    glow: 'rgba(61, 220, 151, 0.2)',
     label: 'Hop 1',
   },
   2: {
-    fill: '#f7fbfa',
-    border: '#1a9b8e',
-    text: '#102226',
-    edge: 'rgba(26, 155, 142, 0.55)',
-    glow: 'rgba(26, 155, 142, 0.2)',
+    fill: '#f4f8fc',
+    border: '#4a7fa3',
+    text: '#16325c',
+    edge: 'rgba(74, 127, 163, 0.45)',
+    glow: 'rgba(74, 127, 163, 0.2)',
     label: 'Hop 2',
   },
   3: {
-    fill: '#eef4f8',
-    border: '#4a7fa3',
-    text: '#16325c',
-    edge: 'rgba(74, 127, 163, 0.65)',
-    glow: 'rgba(74, 127, 163, 0.25)',
+    fill: '#f8f4fc',
+    border: '#7a5ca3',
+    text: '#2a1a48',
+    edge: 'rgba(122, 92, 163, 0.4)',
+    glow: 'rgba(122, 92, 163, 0.18)',
     label: 'Hop 3',
   },
   4: {
-    fill: '#f6f0e8',
+    fill: '#fff8f0',
     border: '#a67c52',
     text: '#3d2a18',
-    edge: 'rgba(166, 124, 82, 0.6)',
-    glow: 'rgba(166, 124, 82, 0.22)',
+    edge: 'rgba(166, 124, 82, 0.4)',
+    glow: 'rgba(166, 124, 82, 0.18)',
     label: 'Hop 4',
   },
   5: {
-    fill: '#f3ebe4',
+    fill: '#fdf6f6',
     border: '#c45b3a',
     text: '#4a2418',
-    edge: 'rgba(196, 91, 58, 0.6)',
-    glow: 'rgba(196, 91, 58, 0.22)',
+    edge: 'rgba(196, 91, 58, 0.4)',
+    glow: 'rgba(196, 91, 58, 0.18)',
     label: 'Hop 5',
   },
 }
@@ -87,21 +86,20 @@ export function hopStyle(depth: number) {
   return HOP_STYLE[d] ?? HOP_STYLE[1]
 }
 
-/** Semantic colours for entity kinds (what the thing is). */
 export const KIND_STYLE: Record<
   NodeKind,
   { fill: string; border: string; text: string; shape: string; label: string }
 > = {
-  work: { fill: '#1e2a3a', border: '#7eb0d4', text: '#e8f2fa', shape: 'round-rectangle', label: 'Work' },
-  person: { fill: '#14352c', border: '#3ddc97', text: '#e8fff4', shape: 'round-rectangle', label: 'Person' },
-  character: { fill: '#3a2418', border: '#e08a4a', text: '#fff0e4', shape: 'round-rectangle', label: 'Character' },
-  place: { fill: '#2a2818', border: '#c9b46a', text: '#f7f0d8', shape: 'round-rectangle', label: 'Place' },
-  org: { fill: '#1a2838', border: '#6a8fc4', text: '#e4ecf8', shape: 'round-rectangle', label: 'Org' },
-  concept: { fill: '#2e1e28', border: '#d47a9a', text: '#fce8f0', shape: 'round-rectangle', label: 'Concept' },
-  literal: { fill: '#f5faf9', border: '#2a9a9e', text: '#0d4a47', shape: 'round-rectangle', label: 'Literal' },
-  class: { fill: '#1a3038', border: '#5a9ab8', text: '#e5f2fa', shape: 'round-rectangle', label: 'Class' },
+  work: { fill: '#f4f8fc', border: '#4a7fa3', text: '#16325c', shape: 'round-rectangle', label: 'Work' },
+  person: { fill: '#f4fbf8', border: '#1a9b8e', text: '#0d3d32', shape: 'round-rectangle', label: 'Person' },
+  character: { fill: '#fff8f0', border: '#c47a3a', text: '#5c3010', shape: 'round-rectangle', label: 'Character' },
+  place: { fill: '#faf8f0', border: '#a6904a', text: '#3d3518', shape: 'round-rectangle', label: 'Place' },
+  org: { fill: '#f4f6fc', border: '#5a6fa3', text: '#1a2848', shape: 'round-rectangle', label: 'Org' },
+  concept: { fill: '#fdf6f9', border: '#c45b7a', text: '#4a1f35', shape: 'round-rectangle', label: 'Concept' },
+  literal: { fill: '#ffffff', border: '#2a9a9e', text: '#0d4a47', shape: 'round-rectangle', label: 'Literal' },
+  class: { fill: '#f2f7fa', border: '#4a8fb8', text: '#1a455c', shape: 'round-rectangle', label: 'Class' },
   relation: { fill: '#1f6b52', border: '#3ddc97', text: '#ffffff', shape: 'round-rectangle', label: 'Property' },
-  entity: { fill: '#1a2c30', border: '#5a9a92', text: '#e8f4f2', shape: 'round-rectangle', label: 'Entity' },
+  entity: { fill: '#f7fbfa', border: '#3a7a72', text: '#102226', shape: 'round-rectangle', label: 'Entity' },
 }
 
 function clip(s: string, max: number) {
@@ -111,8 +109,10 @@ function clip(s: string, max: number) {
 }
 
 /**
- * Multi-line fact card for the canvas:
- * line1 title · line2 kind/class or IN/OUT property · line3 hop + links
+ * Readable canvas labels:
+ * - Property hubs → short chip (name only)
+ * - Entities → title + kind (2 lines max)
+ * Hop/degree live in the focus HUD, not on every card.
  */
 export function informativeCard(
   node: GraphNode,
@@ -128,61 +128,54 @@ export function informativeCard(
   kind: NodeKind
 } {
   const kind = kindOf(node)
-  const hop = node.__hopDepth ?? 0
   const isRel = node.type === 'relation'
   const isLit = node.type === 'literal'
   const root = !!opts?.root
-  const degree = opts?.degree ?? node.__degree ?? 0
-  const kids = opts?.childCount ?? 0
 
-  const titleMax = root ? 30 : isRel ? 18 : isLit ? 22 : 26
+  if (isRel) {
+    const dir = node.__direction === 'in' ? '← ' : ''
+    const title = clip(`${dir}${node.label}`, 14)
+    return {
+      label: title,
+      title,
+      subtitle: '',
+      meta: '',
+      width: Math.max(72, Math.min(title.length * 7.2 + 20, 118)),
+      height: 28,
+      textMax: 100,
+      kind,
+    }
+  }
+
+  const titleMax = root ? 28 : isLit ? 20 : 22
   const title = clip(node.label, titleMax)
+  const subtitle = isLit
+    ? clip(node.classes?.[0] || 'value', 18)
+    : root
+      ? clip(node.classes?.[0] || KIND_STYLE[kind].label, 22)
+      : KIND_STYLE[kind].label
 
-  let subtitle: string
-  if (isRel) {
-    const dir = node.__direction === 'in' ? '← IN' : '→ OUT'
-    subtitle = `${dir} · property`
-  } else if (isLit) {
-    subtitle = 'Data value'
-  } else {
-    const cls = node.classes?.[0] ? clip(node.classes[0], 20) : KIND_STYLE[kind].label
-    subtitle = `${KIND_STYLE[kind].label} · ${cls}`
-  }
-
-  let meta: string
-  if (isRel) {
-    meta = kids > 0 ? `${kids} linked · hop ${hop}` : `hop ${hop}`
-  } else if (root) {
-    meta = degree > 0 ? `seed · ${degree} links` : 'seed entity'
-  } else if (isLit) {
-    meta = `hop ${hop}`
-  } else {
-    meta = degree > 0 ? `hop ${hop} · ${degree} links` : `hop ${hop}`
-  }
-
-  const label = `${title}\n${subtitle}\n${meta}`
-  const longest = Math.max(title.length, subtitle.length, meta.length)
-  const charW = root ? 7.2 : isRel ? 6.4 : 6.6
-  const padX = root ? 28 : isRel ? 18 : 20
+  const label = `${title}\n${subtitle}`
+  const longest = Math.max(title.length, subtitle.length)
   const width = Math.max(
-    root ? 148 : isRel ? 108 : isLit ? 96 : 118,
-    Math.min(longest * charW + padX, root ? 200 : isRel ? 148 : 168),
+    root ? 132 : isLit ? 88 : 100,
+    Math.min(longest * 6.8 + (root ? 26 : 18), root ? 180 : 140),
   )
-  const height = root ? 64 : isRel ? 52 : isLit ? 48 : 56
+  const height = root ? 48 : isLit ? 40 : 44
 
   return {
     label,
     title,
     subtitle,
-    meta,
+    meta: '',
     width,
     height,
-    textMax: Math.max(64, width - 16),
+    textMax: Math.max(56, width - 14),
     kind,
   }
 }
 
-/** Colour: seed gold; properties by cluster; entities by semantic kind. */
+/** Seed gold; hubs by cluster; values light fill + matching cluster border. */
 export function ontologyNodeColors(node: GraphNode): {
   fill: string
   border: string
@@ -194,25 +187,25 @@ export function ontologyNodeColors(node: GraphNode): {
   }
 
   if (node.type === 'relation') {
-    const key = node.__clusterKey || node.id
-    const pal = CLUSTER_PALETTE[clusterColorIndex(key)]
+    const pal = CLUSTER_PALETTE[clusterColorIndex(node.__clusterKey || node.id)]
     return { fill: pal.fill, border: pal.border, text: pal.text }
   }
 
   if (node.type === 'literal') {
-    return { fill: '#f5faf9', border: '#2a9a9e', text: '#0d4a47' }
+    const pal = CLUSTER_PALETTE[clusterColorIndex(node.__clusterKey || node.id)]
+    return { fill: '#ffffff', border: pal.border, text: '#0d4a47' }
   }
 
-  const kind = kindOf(node)
-  const ks = KIND_STYLE[kind]
-  if (hop >= 4) {
-    const hs = hopStyle(hop)
-    return { fill: hs.fill, border: ks.border, text: hs.text }
+  // Entity values: light card + property-cluster border (readable groups)
+  if (node.__clusterKey) {
+    const pal = CLUSTER_PALETTE[clusterColorIndex(node.__clusterKey)]
+    return { fill: pal.valueFill, border: pal.border, text: pal.valueText }
   }
+
+  const ks = KIND_STYLE[kindOf(node)]
   return { fill: ks.fill, border: ks.border, text: ks.text }
 }
 
-/** @deprecated use informativeCard */
 export function labelBoxSize(
   rawLabel: string,
   opts?: { root?: boolean; literal?: boolean; relation?: boolean },
@@ -224,8 +217,9 @@ export function labelBoxSize(
     type: opts?.relation ? 'relation' : opts?.literal ? 'literal' : 'resource',
   }
   const c = informativeCard(fake, { root: opts?.root })
-  return { label: c.title, width: c.width, height: c.height, textMax: c.textMax }
+  return { label: c.label, width: c.width, height: c.height, textMax: c.textMax }
 }
 
-/** Seed centre; rings for entity-distance hops 1–5 (wider for fact cards). */
-export const HOP_RADIUS = [0, 175, 300, 420, 520, 610] as const
+/** Entity-hop radii; hubs sit inward on the same hop. */
+export const HOP_RADIUS = [0, 210, 360, 500, 620, 730] as const
+export const HUB_RADIUS_FACTOR = 0.58
