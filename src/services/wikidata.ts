@@ -13,6 +13,7 @@ import {
   WIKIDATA_CORE_CLASSES,
 } from '../types/ontology'
 import { localName, runSparql, searchWikidataApi } from './sparql-core'
+import { stampTreeHopDepths } from '../utils/treeLayout'
 
 const WDT = 'http://www.wikidata.org/prop/direct/'
 
@@ -700,5 +701,7 @@ export async function wdClassMap(_endpoint: string): Promise<{
   }
 
   // Curated map only — skip live enrich (keeps bootstrap fast)
-  return { nodes: [...nodes.values()], links, rootId: WD_ENTITY }
+  const nodeList = [...nodes.values()]
+  const stamped = stampTreeHopDepths(nodeList, links, WD_ENTITY)
+  return { nodes: stamped, links, rootId: WD_ENTITY }
 }

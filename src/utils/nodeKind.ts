@@ -27,7 +27,7 @@ export function kindOf(node: GraphNode): NodeKind {
   return 'entity'
 }
 
-/** Ontology hop legend (Entity → Property → Value). */
+/** Entity-distance hop legend (0 seed · 1–5 neighbor layers). */
 export const HOP_STYLE: Record<
   number,
   { fill: string; border: string; text: string; edge: string; glow: string; label: string }
@@ -46,7 +46,7 @@ export const HOP_STYLE: Record<
     text: '#ffffff',
     edge: 'rgba(47, 158, 107, 0.75)',
     glow: 'rgba(47, 158, 107, 0.3)',
-    label: 'Hop 1 · Property',
+    label: 'Hop 1 · Neighbors',
   },
   2: {
     fill: '#ffffff',
@@ -54,7 +54,7 @@ export const HOP_STYLE: Record<
     text: '#1a3d2e',
     edge: 'rgba(47, 158, 107, 0.55)',
     glow: 'rgba(47, 158, 107, 0.2)',
-    label: 'Hop 2 · Value',
+    label: 'Hop 2',
   },
   3: {
     fill: '#e8f0ff',
@@ -62,12 +62,28 @@ export const HOP_STYLE: Record<
     text: '#16325c',
     edge: 'rgba(90, 140, 210, 0.7)',
     glow: 'rgba(90, 140, 210, 0.3)',
-    label: 'Hop 3 · Next layer',
+    label: 'Hop 3',
+  },
+  4: {
+    fill: '#f5e8ff',
+    border: '#8b5cb8',
+    text: '#3a1f52',
+    edge: 'rgba(139, 92, 184, 0.65)',
+    glow: 'rgba(139, 92, 184, 0.25)',
+    label: 'Hop 4',
+  },
+  5: {
+    fill: '#fff0e0',
+    border: '#d4782a',
+    text: '#5c3010',
+    edge: 'rgba(212, 120, 42, 0.65)',
+    glow: 'rgba(212, 120, 42, 0.25)',
+    label: 'Hop 5',
   },
 }
 
 export function hopStyle(depth: number) {
-  const d = Math.max(0, Math.min(3, depth))
+  const d = Math.max(0, Math.min(5, depth))
   return HOP_STYLE[d] ?? HOP_STYLE[1]
 }
 
@@ -85,11 +101,16 @@ export function ontologyNodeColors(node: GraphNode): {
   const key = node.__clusterKey || node.id
   const pal = CLUSTER_PALETTE[clusterColorIndex(key)]
 
-  if (node.type === 'relation' || hop === 1) {
+  if (node.type === 'relation') {
     return { fill: pal.fill, border: pal.border, text: pal.text }
   }
 
-  // Values share the cluster border (Sholay white cards)
+  // Values share the cluster border; deeper hops tint fill lightly via HOP_STYLE
+  if (hop >= 3) {
+    const hs = hopStyle(hop)
+    return { fill: hs.fill, border: pal.border, text: hs.text }
+  }
+
   return {
     fill: pal.valueFill,
     border: pal.border,
@@ -138,5 +159,5 @@ export function labelBoxSize(
   return { label, width, height, textMax: Math.max(52, width - 14) }
 }
 
-/** Seed centre; property hubs mid ring; values outer — short spokes. */
-export const HOP_RADIUS = [0, 150, 270, 380] as const
+/** Seed centre; rings for entity-distance hops 1–5. */
+export const HOP_RADIUS = [0, 150, 260, 360, 450, 530] as const

@@ -202,35 +202,35 @@ export function GraphSearch({
 
   return (
     <div className={`search-dock ${suggestVisible ? 'suggesting' : ''}`} ref={wrapRef}>
-      <div className="search-mode-toggle" role="group" aria-label="Search mode">
-        <button
-          type="button"
-          className={mode === 'entity' ? 'on' : ''}
-          onClick={() => {
-            setMode('entity')
-            setShowDropdown(false)
-            setResults([])
-            setSuggestionsLocked(false)
-          }}
-        >
-          Entity
-        </button>
-        <button
-          type="button"
-          className={mode === 'dataprop' ? 'on' : ''}
-          onClick={() => {
-            setMode('dataprop')
-            setShowDropdown(false)
-            setResults([])
-            setSuggestionsLocked(false)
-            setWithinSelected(false)
-          }}
-        >
-          Data property
-        </button>
-      </div>
-
       <div className="search-dock-row">
+        <div className="search-mode-toggle" role="group" aria-label="Search mode">
+          <button
+            type="button"
+            className={mode === 'entity' ? 'on' : ''}
+            onClick={() => {
+              setMode('entity')
+              setShowDropdown(false)
+              setResults([])
+              setSuggestionsLocked(false)
+            }}
+          >
+            Entity
+          </button>
+          <button
+            type="button"
+            className={mode === 'dataprop' ? 'on' : ''}
+            onClick={() => {
+              setMode('dataprop')
+              setShowDropdown(false)
+              setResults([])
+              setSuggestionsLocked(false)
+              setWithinSelected(false)
+            }}
+          >
+            Data property
+          </button>
+        </div>
+
         <form className={`search-form ${mode === 'dataprop' ? 'dataprop' : ''}`} onSubmit={handleSubmit}>
           <label className="sf-field sf-class">
             <span>Class</span>
@@ -308,25 +308,24 @@ export function GraphSearch({
           </button>
         </form>
 
+        {canSearchWithin && (
+          <label className={`within-line inline ${withinSelected ? 'on' : ''}`}>
+            <input
+              type="checkbox"
+              checked={withinSelected}
+              onChange={(e) => {
+                setSuggestionsLocked(false)
+                setWithinSelected(e.target.checked)
+              }}
+            />
+            <span>
+              Within <strong>{selectedNode!.label}</strong>
+            </span>
+          </label>
+        )}
+
         <HopQuick store={store} />
       </div>
-
-      {canSearchWithin && (
-        <label className={`within-line ${withinSelected ? 'on' : ''}`}>
-          <input
-            type="checkbox"
-            checked={withinSelected}
-            onChange={(e) => {
-              setSuggestionsLocked(false)
-              setWithinSelected(e.target.checked)
-            }}
-          />
-          <span>
-            Within <strong>{selectedNode!.label}</strong>
-          </span>
-        </label>
-      )}
-
       {showEntityChips && (
         <div className="search-examples">
           {examples.map((ex) => (

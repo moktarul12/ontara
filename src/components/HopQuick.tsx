@@ -1,25 +1,31 @@
 import { useState } from 'react'
 import type { OntologyStore } from '../hooks/useOntologyStore'
 import type { HopDirection } from '../services/sparql'
-import { isOntologyClassUri } from '../services/sparql'
+import { isRelationHubId, MAX_ONTOLOGY_HOPS } from '../services/ontologyHops'
 
 interface Props {
   store: OntologyStore
 }
 
-/** Hops [−][1][2][3][+] · Out / In / Both — increase & decrease both work. */
+const HOP_LEVELS = [1, 2, 3, 4, 5] as const
+
+/**
+ * Hops = entity distance from the seed.
+ * Out  = follow only outgoing properties
+ * In   = follow only incoming properties
+ * Both = both directions
+ * Stops early when SPARQL returns no further entities (max 5).
+ */
 export function HopQuick({ store }: Props) {
-  const { selectedNode, applyHops, shrinkHops, loading, graph, appliedHopDepth, pathRootId } =
+  const { applyHops, shrinkHops, loading, graph, appliedHopDepth, pathRootId, selectedNode } =
     store
-  const [direction, setDirection] = useState<HopDirection>('out')
+  const [direction, setDirection] = useState<HopDirection>('both')
 
   const hopRoot =
     (pathRootId && graph.nodes.some((n) => n.id === pathRootId) ? pathRootId : null) ||
     (selectedNode &&
-    selectedNode.type !== 'literal' &&
-    selectedNode.type !== 'relation' &&
-    !selectedNode.id.startsWith('literal:') &&
-    !isOntologyClassUri(selectedNode.uri)
+    !isRelationHubId(selectedNode.id) &&
+    !selectedNode.id.startsWith('literal:')
       ? selectedNode.id
       : null)
 
@@ -29,10 +35,13 @@ export function HopQuick({ store }: Props) {
     <div
       className={`hop-quick ${canGrow ? 'ready' : 'idle'}`}
       role="group"
-      aria-label="Ontology hops"
+      aria-label="Entity hops"
     >
       <span className="hop-quick-kicker">Hops</span>
-      <span className="hop-applied" title="Ontology hop depth (0 entity · 1 property · 2 value)">
+      <span
+        className="hop-applied"
+        title="Entity distance from seed (stops early if no more data)"
+      >
         {appliedHopDepth}
       </span>
       <div className="hop-bracket hop-stepper">
@@ -41,12 +50,12 @@ export function HopQuick({ store }: Props) {
           className="hop-step"
           disabled={loading || !canGrow || appliedHopDepth <= 0}
           onClick={() => shrinkHops(1)}
-          title="Decrease ontology hop"
+          title="Decrease hop"
           aria-label="Decrease hops"
         >
           −
         </button>
-        {[1, 2, 3].map((n) => (
+        {HOP_LEVELS.map((n) => (
           <button
             key={n}
             type="button"
@@ -57,13 +66,7 @@ export function HopQuick({ store }: Props) {
               void applyHops(n, direction)
             }}
             aria-pressed={appliedHopDepth === n}
-            title={
-              n === 1
-                ? 'Hop 1 · ontology properties'
-                : n === 2
-                  ? 'Hop 2 · property values'
-                  : 'Hop 3 · next ontology layer'
-            }
+            title={`Hop ${n} · ${direction} · property hubs + values at distance ${n}`}
           >
             {n}
           </button>
@@ -71,12 +74,12 @@ export function HopQuick({ store }: Props) {
         <button
           type="button"
           className="hop-step hop-grow"
-          disabled={loading || !canGrow || appliedHopDepth >= 3}
+          disabled={loading || !canGrow || appliedHopDepth >= MAX_ONTOLOGY_HOPS}
           onClick={() => {
             if (!canGrow) return
-            void applyHops(Math.min(3, appliedHopDepth + 1), direction)
+            void applyHops(Math.min(MAX_ONTOLOGY_HOPS, appliedHopDepth + 1), direction)
           }}
-          title={`Increase ontology hop (${direction})`}
+          title={`Grow one hop (${direction})`}
           aria-label="Increase hops"
         >
           +
@@ -85,9 +88,21 @@ export function HopQuick({ store }: Props) {
       <div className="hop-dir-mini" role="group" aria-label="Direction">
         {(
           [
-            { id: 'out', label: 'Out' },
-            { id: 'in', label: 'In' },
-            { id: 'both', label: 'Both' },
+            {
+              id: 'out' as const,
+              label: 'Out',
+              title: 'Outgoing only — seed → property → values',
+            },
+            {
+              id: 'in' as const,
+              label: 'In',
+              title: 'Incoming only — values → property → seed',
+            },
+            {
+              id: 'both' as const,
+              label: 'Both',
+              title: 'Both directions',
+            },
           ] as const
         ).map((d) => (
           <button
@@ -95,13 +110,7 @@ export function HopQuick({ store }: Props) {
             type="button"
             className={`hop-d ${direction === d.id ? 'on' : ''}`}
             onClick={() => setDirection(d.id)}
-            title={
-              d.id === 'out'
-                ? 'Outgoing properties'
-                : d.id === 'in'
-                  ? 'Incoming properties'
-                  : 'Both directions'
-            }
+            title={d.title}
           >
             {d.label}
           </button>

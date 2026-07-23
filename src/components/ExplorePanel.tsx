@@ -17,6 +17,7 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
     selectedNeighborUris,
     loading,
     expandRelation,
+    expandNode,
     openRelation,
     toggleNeighbor,
     selectAllNeighbors,
@@ -86,8 +87,19 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
   }
 
   const initial = (selectedNode.label.trim()[0] || '?').toUpperCase()
-  const kind = selectedNode.type === 'class' ? 'Class' : 'Entity'
+  const kind =
+    selectedNode.type === 'relation'
+      ? 'Property'
+      : selectedNode.type === 'class'
+        ? 'Class'
+        : selectedNode.type === 'literal'
+          ? 'Literal'
+          : 'Entity'
   const selectedCount = selectedNeighborUris.size
+  const canExpandNode =
+    selectedNode.type !== 'relation' &&
+    selectedNode.type !== 'literal' &&
+    !selectedNode.id.startsWith('literal:')
 
   return (
     <aside className="inspector">
@@ -162,41 +174,86 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
         </div>
       )}
 
-      {selectedNode.type !== 'class' && panelMode === 'relations' && (
-        <div className="hop-recipes">
-          <p className="hop-path-kicker">Ontology hops</p>
+      {canExpandNode && panelMode === 'relations' && (
+        <div className="hop-recipes node-explore">
+          <p className="hop-path-kicker">Attached to this node</p>
+          <p className="node-explore-hint">
+            Next hops grow from <strong>{selectedNode.label}</strong>. Use depth or load
+            everything linked here.
+          </p>
+          <div className="hop-recipe-row">
+            <button
+              type="button"
+              className="chip primary-chip"
+              disabled={loading}
+              onClick={() => void expandNode('both', { all: true, steps: 1 })}
+              title="Pull all properties and many values attached to this node"
+            >
+              Show all attached
+            </button>
+          </div>
+          <p className="hop-path-kicker">Next hops · depth</p>
+          <div className="hop-recipe-row">
+            {([1, 2, 3] as const).map((d) => (
+              <button
+                key={d}
+                type="button"
+                className="chip"
+                disabled={loading}
+                onClick={() => void expandNode('both', { steps: d })}
+                title={`Grow ${d} hop${d === 1 ? '' : 's'} from this node`}
+              >
+                Depth {d}
+              </button>
+            ))}
+          </div>
           <div className="hop-recipe-row">
             <button
               type="button"
               className="chip"
               disabled={loading}
-              onClick={() => void applyHops(1, 'out')}
+              onClick={() => void expandNode('out', { steps: 1 })}
             >
-              1 · properties
+              Out only
             </button>
             <button
               type="button"
               className="chip"
               disabled={loading}
-              onClick={() => void applyHops(2, 'out')}
+              onClick={() => void expandNode('in', { steps: 1 })}
             >
-              2 · values
+              In only
             </button>
             <button
               type="button"
               className="chip"
               disabled={loading}
-              onClick={() => void applyHops(3, 'both')}
+              onClick={() => void expandNode('both', { steps: 1, all: true })}
+              title="One hop, full property list"
             >
-              3 · next layer
+              Full · 1 hop
             </button>
+          </div>
+          <p className="hop-path-kicker">Seed hops</p>
+          <div className="hop-recipe-row">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button
+                key={n}
+                type="button"
+                className="chip"
+                disabled={loading}
+                onClick={() => void applyHops(n, 'both')}
+              >
+                {n}
+              </button>
+            ))}
             <button
               type="button"
               className="chip"
               disabled={loading || store.appliedHopDepth <= 0}
               onClick={() => store.shrinkHops(1)}
             >
-              −1 hop
+              −1
             </button>
           </div>
         </div>
@@ -300,11 +357,11 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
           ) : (
             <>
               <p className="panel-lead">
-                Multi-hop explore: <strong>List</strong> a relation → pick connected nodes →{' '}
-                <strong>Add selected / Add all</strong>. Use search-bar <strong>Hops 1–3</strong> to
-                walk further out.
+                Click an award or value → <strong>Show all attached</strong> or{' '}
+                <strong>Depth 1–3</strong>. Or <strong>List</strong> a relation → add one / selected
+                / all. Double-click a node on the canvas to expand it fully.
               </p>
-              {selectedNode.type !== 'class' && (
+              {canExpandNode && (
                 <button
                   type="button"
                   className="ghost compact root-btn"

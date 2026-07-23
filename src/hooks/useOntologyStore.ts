@@ -21,11 +21,11 @@ import {
   type HopDirection,
 } from '../services/sparql'
 import {
-  buildRelationHubs,
-  expandOntologyHop3,
-  expandRelationHubValues,
+  expandEntityHopLayer,
   fetchOntologyKnowledgeGraph,
+  graphPiecesViaHub,
   isRelationHubId,
+  MAX_ONTOLOGY_HOPS,
 } from '../services/ontologyHops'
 import { findShortestPath, type HopTrailStep, type PathStep } from '../utils/graphPath'
 
@@ -183,8 +183,10 @@ function reducer(state: ExploreState, action: Action): ExploreState {
         ...state,
         selectedNodeId: action.id,
         activeRelation: null,
+        relationTypes: [],
         neighbors: [],
         selectedNeighborUris: new Set(),
+        dataProperties: [],
         lastExpandMessage: null,
       }
     case 'SET_RELATIONS':
@@ -318,35 +320,6 @@ function stampInitialHopDepths(nodes: GraphNode[], rootId: string): GraphNode[] 
 
 function linkId(source: string, predicate: string, target: string) {
   return `${source}|${predicate}|${target}`
-}
-
-function toGraphPieces(
-  sourceId: string,
-  rel: RelationType,
-  items: ConnectedNode[],
-): { nodes: GraphNode[]; links: GraphLink[] } {
-  const nodes: GraphNode[] = items.map((n) => ({
-    id: n.uri,
-    uri: n.uri,
-    label: n.label,
-    type: isOntologyClassUri(n.uri) ? ('class' as const) : ('resource' as const),
-    classes: n.typeLabel ? [n.typeLabel] : undefined,
-    __pulse: 1,
-  }))
-
-  const links: GraphLink[] = items.map((n) => {
-    const from = rel.direction === 'out' ? sourceId : n.uri
-    const to = rel.direction === 'out' ? n.uri : sourceId
-    return {
-      id: linkId(from, rel.predicate, to),
-      source: from,
-      target: to,
-      predicate: rel.predicate,
-      predicateLabel: rel.predicateLabel.replace(/\s*\(.*\)$/, ''),
-    }
-  })
-
-  return { nodes, links }
 }
 
 export function useOntologyStore() {
@@ -532,24 +505,80 @@ export function useOntologyStore() {
         }
       }
 
-      if (isRelationHubId(id) || id.startsWith('literal:')) {
-        dispatch({ type: 'SELECT_NODE', id })
-        setPath()
-        dispatch({ type: 'SET_PANEL', mode: 'relations' })
+      const gen = ++selectGen.current
+      dispatch({ type: 'SELECT_NODE', id })
+      setPath()
+
+      if (id.startsWith('literal:')) {
+        dispatch({ type: 'SET_PANEL', mode: 'details' })
         dispatch({
           type: 'ADD_NODES',
           nodes: [],
           links: [],
-          message: isRelationHubId(id)
-            ? 'Ontology property · Entity → Property → Value'
-            : 'Literal data value',
+          message: 'Literal data value',
         })
         return
       }
 
-      const gen = ++selectGen.current
-      dispatch({ type: 'SELECT_NODE', id })
-      setPath()
+      // Property hub → load connected values for add single / multi / all
+      if (isRelationHubId(id)) {
+        const hub = state.graph.nodes.find((n) => n.id === id)
+        const parentId = hub?.__parentId
+        const predicate = hub?.__predicate || hub?.uri
+        const direction = (hub?.__direction === 'in' ? 'in' : 'out') as 'out' | 'in'
+        if (!parentId || !predicate) {
+          dispatch({ type: 'SET_PANEL', mode: 'relations' })
+          dispatch({
+            type: 'ADD_NODES',
+            nodes: [],
+            links: [],
+            message: 'Ontology property · Entity → Property → Value',
+          })
+          return
+        }
+
+        const relation: RelationType = {
+          predicate,
+          predicateLabel: hub?.label || localName(predicate),
+          count: -1,
+          direction,
+        }
+        dispatch({ type: 'SET_ACTIVE_RELATION', relation })
+        dispatch({ type: 'SET_RELATIONS', relations: [relation] })
+        dispatch({
+          type: 'SET_LOADING',
+          loading: true,
+          message: `Listing ${relation.predicateLabel}…`,
+        })
+        try {
+          const neighbors = await fetchConnectedNodes(
+            state.config.endpoint,
+            parentId,
+            predicate,
+            direction,
+            40,
+          )
+          if (gen !== selectGen.current) return
+          dispatch({ type: 'SET_NEIGHBORS', neighbors })
+          dispatch({ type: 'SELECT_ALL_NEIGHBORS', selected: true })
+          dispatch({ type: 'SET_PANEL', mode: 'neighbors' })
+          dispatch({
+            type: 'ADD_NODES',
+            nodes: [],
+            links: [],
+            message: `${neighbors.length} connected · add one, selected, or all`,
+          })
+        } catch (err) {
+          if (gen !== selectGen.current) return
+          dispatch({
+            type: 'SET_ERROR',
+            error: err instanceof Error ? err.message : 'Failed to load property values',
+          })
+        } finally {
+          if (gen === selectGen.current) dispatch({ type: 'SET_LOADING', loading: false })
+        }
+        return
+      }
 
       dispatch({ type: 'SET_LOADING', loading: true, message: 'Loading relations…' })
       try {
@@ -578,11 +607,25 @@ export function useOntologyStore() {
     [state.config.endpoint, state.config.seedUri, state.pathRootId, state.graph],
   )
 
-  /** Primary UX: relation click → nodes + edges appear on the graph immediately. */
+  /** Resolve which entity owns a relation expand (hub → parent entity). */
+  const expandSubjectId = useCallback((): string | null => {
+    const id = state.selectedNodeId
+    if (!id || id.startsWith('literal:')) return null
+    if (isRelationHubId(id)) {
+      return state.graph.nodes.find((n) => n.id === id)?.__parentId ?? null
+    }
+    return id
+  }, [state.selectedNodeId, state.graph.nodes])
+
+  /** Primary UX: relation click → Entity → Property hub → Values on the graph. */
   const expandRelation = useCallback(
     async (relation: RelationType, limit = 8) => {
-      if (!state.selectedNodeId) return
-      const sourceId = state.selectedNodeId
+      const sourceId = expandSubjectId()
+      if (!sourceId) return
+      const hopDepth = Math.min(
+        MAX_ONTOLOGY_HOPS,
+        Math.max(1, (state.graph.nodes.find((n) => n.id === sourceId)?.__hopDepth ?? 0) + 1),
+      )
       dispatch({ type: 'SET_ACTIVE_RELATION', relation })
       dispatch({
         type: 'SET_LOADING',
@@ -598,104 +641,24 @@ export function useOntologyStore() {
           limit,
         )
         dispatch({ type: 'SET_NEIGHBORS', neighbors })
+        dispatch({ type: 'SELECT_ALL_NEIGHBORS', selected: true })
 
-        // Ontology-shaped: Entity → Property hub → Values
-        if (isRelationHubId(sourceId)) {
-          const hub = state.graph.nodes.find((n) => n.id === sourceId)
-          const { nodes, links } = toGraphPieces(
-            hub?.__parentId || sourceId,
-            relation,
-            neighbors,
-          )
-          // Rewire through the hub
-          const viaHub = neighbors.map((n) => ({
-            id: n.uri,
-            uri: n.uri,
-            label: n.label,
-            type: isOntologyClassUri(n.uri) ? ('class' as const) : ('resource' as const),
-            classes: n.typeLabel ? [n.typeLabel] : undefined,
-            __hopDepth: 2,
-            __clusterKey: sourceId,
-            __parentId: sourceId,
-            __predicate: relation.predicate,
-            __pulse: 1,
-          }))
-          const viaLinks = neighbors.map((n) => ({
-            id: `${sourceId}|${relation.predicate}|${n.uri}`,
-            source: sourceId,
-            target: n.uri,
-            predicate: relation.predicate,
-            predicateLabel: relation.predicateLabel.replace(/\s*\(.*\)$/, ''),
-          }))
-          void nodes
-          void links
-          const existing = new Set(state.graph.nodes.map((n) => n.id))
-          const added = viaHub.filter((n) => !existing.has(n.id)).length
-          dispatch({
-            type: 'ADD_NODES',
-            nodes: viaHub,
-            links: viaLinks,
-            message:
-              added > 0
-                ? `Added ${added} values under ${relation.predicateLabel}`
-                : `Values already on the graph`,
-          })
-        } else {
-          const hubId = `relhub:${relation.direction}:${relation.predicate}:${sourceId}`
-          const hubLabel = relation.predicateLabel.replace(/\s*\(.*\)$/, '')
-          const hubNode: GraphNode = {
-            id: hubId,
-            uri: relation.predicate,
-            label: hubLabel,
-            type: 'relation',
-            classes: ['Ontology property'],
-            __hopDepth: 1,
-            __clusterKey: hubId,
-            __parentId: sourceId,
-            __predicate: relation.predicate,
-            __direction: relation.direction,
-            __pulse: 1,
-          }
-          const valueNodes: GraphNode[] = neighbors.map((n) => ({
-            id: n.uri,
-            uri: n.uri,
-            label: n.label,
-            type: isOntologyClassUri(n.uri) ? ('class' as const) : ('resource' as const),
-            classes: n.typeLabel ? [n.typeLabel] : undefined,
-            __hopDepth: 2,
-            __clusterKey: hubId,
-            __parentId: hubId,
-            __predicate: relation.predicate,
-            __pulse: 1,
-          }))
-          const links: GraphLink[] = [
-            {
-              id: `${sourceId}|${relation.predicate}|${hubId}`,
-              source: sourceId,
-              target: hubId,
-              predicate: relation.predicate,
-              predicateLabel: hubLabel,
-            },
-            ...neighbors.map((n) => ({
-              id: `${hubId}|${relation.predicate}|${n.uri}`,
-              source: hubId,
-              target: n.uri,
-              predicate: relation.predicate,
-              predicateLabel: hubLabel,
-            })),
-          ]
-          const existing = new Set(state.graph.nodes.map((n) => n.id))
-          const toAdd = [hubNode, ...valueNodes].filter((n) => !existing.has(n.id))
-          dispatch({
-            type: 'ADD_NODES',
-            nodes: toAdd,
-            links,
-            message: `Ontology: ${hubLabel} → ${neighbors.length} value${neighbors.length === 1 ? '' : 's'}`,
-          })
-          if (state.appliedHopDepth < 2) {
-            dispatch({ type: 'SET_APPLIED_HOPS', depth: 2 })
-          }
+        const { nodes, links } = graphPiecesViaHub(sourceId, relation, neighbors, hopDepth)
+        const existing = new Set(state.graph.nodes.map((n) => n.id))
+        const added = nodes.filter((n) => !existing.has(n.id)).length
+        dispatch({
+          type: 'ADD_NODES',
+          nodes,
+          links,
+          message:
+            added > 0
+              ? `Added ${added} under ${relation.predicateLabel}`
+              : `Already on the graph`,
+        })
+        if (state.appliedHopDepth < hopDepth) {
+          dispatch({ type: 'SET_APPLIED_HOPS', depth: hopDepth })
         }
+        dispatch({ type: 'SET_PANEL', mode: 'neighbors' })
       } catch (err) {
         dispatch({
           type: 'SET_ERROR',
@@ -705,38 +668,47 @@ export function useOntologyStore() {
         dispatch({ type: 'SET_LOADING', loading: false })
       }
     },
-    [state.config.endpoint, state.selectedNodeId, state.graph.nodes],
+    [
+      expandSubjectId,
+      state.config.endpoint,
+      state.graph.nodes,
+      state.appliedHopDepth,
+    ],
   )
 
-  /** Ontology hops: 1 = property hubs, 2 = values, 3 = next entity→property→value layer. */
+  /**
+   * Entity-distance hops from the seed (path root).
+   * Out / In / Both filter which SPARQL directions to follow.
+   * Each hop = property hubs + value entities for the frontier.
+   * Caps at MAX_ONTOLOGY_HOPS; stops early when no new entities appear.
+   */
   const applyHops = useCallback(
     async (targetHops: number, direction: HopDirection) => {
       const root = state.pathRootId || state.selectedNodeId
       if (!root || targetHops < 0) return
       if (isRelationHubId(root) || root.startsWith('literal:')) return
 
+      const capped = Math.min(MAX_ONTOLOGY_HOPS, Math.max(0, targetHops))
       const current = state.appliedHopDepth
 
-      if (targetHops < current) {
+      if (capped < current) {
         dispatch({
           type: 'TRIM_TO_HOPS',
-          maxDepth: targetHops,
+          maxDepth: capped,
           message:
-            targetHops === 0
+            capped === 0
               ? 'Seed entity only'
-              : targetHops === 1
-                ? 'Ontology properties (hop 1)'
-                : `Trimmed to ontology hop ${targetHops}`,
+              : `Trimmed to hop ${capped}`,
         })
         return
       }
 
-      if (targetHops === current && current > 0) {
+      if (capped === current && current > 0) {
         dispatch({
           type: 'ADD_NODES',
           nodes: [],
           links: [],
-          message: `Already at ontology hop ${current}`,
+          message: `Already at hop ${current}`,
         })
         return
       }
@@ -744,68 +716,65 @@ export function useOntologyStore() {
       dispatch({
         type: 'SET_LOADING',
         loading: true,
-        message: `Ontology hop → ${targetHops} (${direction})…`,
+        message: `Hop → ${capped} (${direction})…`,
       })
 
       try {
-        // Local snapshot — React state won't update mid-loop
         let localNodes: GraphNode[] = [...state.graph.nodes]
         const known = new Set(localNodes.map((n) => n.id))
+        const visited = new Set<string>([root])
         let totalAdded = 0
         let totalEdges = 0
-        const pathNodes = new Set<string>([root])
-        const allNewLinkIds: string[] = []
+        let reached = current
 
-        for (let depth = current + 1; depth <= targetHops; depth++) {
+        const entityFrontier = (depth: number): string[] => {
+          if (depth <= 0) return [root]
+          return localNodes
+            .filter(
+              (n) =>
+                (n.__hopDepth ?? 0) === depth &&
+                (n.type === 'resource' || n.type === 'class') &&
+                !isRelationHubId(n.id) &&
+                !n.id.startsWith('literal:'),
+            )
+            .map((n) => n.id)
+        }
+
+        for (let depth = current + 1; depth <= capped; depth++) {
+          const layerSubjects =
+            depth === 1 ? [root] : entityFrontier(depth - 1).slice(0, 8)
+
+          if (!layerSubjects.length) {
+            dispatch({
+              type: 'ADD_NODES',
+              nodes: [],
+              links: [],
+              message: `No more data past hop ${reached} (${direction})`,
+            })
+            break
+          }
+
           dispatch({
             type: 'SET_LOADING',
             loading: true,
-            message:
-              depth === 1
-                ? 'Hop 1 · ontology properties…'
-                : depth === 2
-                  ? 'Hop 2 · property values…'
-                  : 'Hop 3 · next ontology layer…',
+            message: `Hop ${depth} · ${direction} from ${layerSubjects.length} entit${layerSubjects.length === 1 ? 'y' : 'ies'}…`,
           })
 
-          let layerNodes: GraphNode[] = []
-          let layerLinks: GraphLink[] = []
+          const layer = await expandEntityHopLayer(
+            state.config.endpoint,
+            layerSubjects,
+            direction,
+            depth,
+            {
+              maxSubjects: depth === 1 ? 1 : 6,
+              predsPerSubject: direction === 'both' ? 3 : 4,
+              neighborsPerPred: depth === 1 ? 5 : 3,
+            },
+          )
 
-          if (depth === 1) {
-            const types = await fetchRelationTypes(state.config.endpoint, root)
-            const hubs = buildRelationHubs(root, types, direction, direction === 'both' ? 12 : 10)
-            layerNodes = hubs.nodes
-            layerLinks = hubs.links
-          } else if (depth === 2) {
-            const hubs = localNodes.filter(
-              (n) => n.type === 'relation' && (n.__hopDepth ?? 0) === 1 && n.__parentId,
-            )
-            const vals = await expandRelationHubValues(
-              state.config.endpoint,
-              hubs,
-              direction === 'both' ? 4 : 5,
-            )
-            layerNodes = vals.nodes
-            layerLinks = vals.links
-          } else if (depth === 3) {
-            const values = localNodes.filter(
-              (n) =>
-                (n.__hopDepth ?? 0) === 2 &&
-                (n.type === 'resource' || n.type === 'class') &&
-                !isRelationHubId(n.id),
-            )
-            const layer = await expandOntologyHop3(state.config.endpoint, values, direction, {
-              maxSubjects: 5,
-              hubsPerSubject: 2,
-              valuesPerHub: 2,
-            })
-            layerNodes = layer.nodes
-            layerLinks = layer.links
-          }
-
-          const stamped = layerNodes.map((n) => ({
+          const stamped = layer.nodes.map((n) => ({
             ...n,
-            __hopDepth: n.__hopDepth ?? depth,
+            __hopDepth: depth,
             __pulse: 1,
           }))
 
@@ -816,53 +785,59 @@ export function useOntologyStore() {
               localNodes.push(n)
               addedHere += 1
             }
-            pathNodes.add(n.id)
           }
+          const unseenFrontier = layer.nextFrontier.filter((id) => !visited.has(id))
+          for (const id of layerSubjects) visited.add(id)
+          for (const id of layer.nextFrontier) visited.add(id)
           totalAdded += addedHere
-          totalEdges += layerLinks.length
-          for (const l of layerLinks) allNewLinkIds.push(l.id)
+          totalEdges += layer.links.length
 
           dispatch({
             type: 'ADD_NODES',
             nodes: stamped,
-            links: layerLinks,
-            message:
-              depth === 1
-                ? `Hop 1 · +${addedHere} ontology properties`
-                : depth === 2
-                  ? `Hop 2 · +${addedHere} values`
-                  : `Hop 3 · +${addedHere} ontology links`,
+            links: layer.links,
+            message: `Hop ${depth} · +${addedHere} nodes`,
           })
 
           dispatch({
             type: 'PUSH_HOP_TRAIL',
             step: {
               depth,
-              fromIds: [root],
+              fromIds: layerSubjects,
               addedCount: addedHere,
-              edgeCount: layerLinks.length,
+              edgeCount: layer.links.length,
               sampleLabels: stamped.slice(0, 4).map((n) => n.label),
             },
           })
+
+          reached = depth
+
+          if (layer.exhausted || (addedHere === 0 && unseenFrontier.length === 0)) {
+            dispatch({
+              type: 'ADD_NODES',
+              nodes: [],
+              links: [],
+              message:
+                depth < capped
+                  ? `Stopped at hop ${depth} — no further ${direction} data`
+                  : `Hop ${depth} complete`,
+            })
+            break
+          }
         }
 
-        dispatch({ type: 'SET_APPLIED_HOPS', depth: targetHops })
-        dispatch({
-          type: 'SET_PATH',
-          steps: [],
-          nodeIds: [...pathNodes],
-          linkIds: allNewLinkIds.slice(0, 100),
-        })
+        dispatch({ type: 'SET_APPLIED_HOPS', depth: reached })
+        dispatch({ type: 'CLEAR_PATH' })
         dispatch({
           type: 'ADD_NODES',
           nodes: [],
           links: [],
-          message: `Ontology hop ${targetHops} · +${totalAdded} · ${totalEdges} edges`,
+          message: `Hops ${reached} · +${totalAdded} · ${totalEdges} edges · ${direction}`,
         })
       } catch (err) {
         dispatch({
           type: 'SET_ERROR',
-          error: err instanceof Error ? err.message : 'Ontology hop failed',
+          error: err instanceof Error ? err.message : 'Hop expand failed',
         })
       } finally {
         dispatch({ type: 'SET_LOADING', loading: false })
@@ -874,6 +849,154 @@ export function useOntologyStore() {
       state.appliedHopDepth,
       state.graph.nodes,
       state.config.endpoint,
+    ],
+  )
+
+  /**
+   * Expand the selected entity onto the canvas.
+   * steps = how many entity-distance hops from this node (1–3)
+   * all = pull more properties + more values per property (“see everything attached”)
+   */
+  const expandNode = useCallback(
+    async (
+      direction: HopDirection = 'both',
+      opts?: { steps?: number; all?: boolean; nodeId?: string },
+    ) => {
+      const id = opts?.nodeId ?? state.selectedNodeId
+      if (!id || isRelationHubId(id) || id.startsWith('literal:')) return
+
+      const steps = Math.min(3, Math.max(1, opts?.steps ?? 1))
+      const all = opts?.all ?? false
+      const fromDepth = state.graph.nodes.find((n) => n.id === id)?.__hopDepth ?? 0
+
+      if (fromDepth + 1 > MAX_ONTOLOGY_HOPS) {
+        dispatch({
+          type: 'ADD_NODES',
+          nodes: [],
+          links: [],
+          message: `Max ${MAX_ONTOLOGY_HOPS} hops reached`,
+        })
+        return
+      }
+
+      // Keep inspector on this node while expanding
+      if (state.selectedNodeId !== id) {
+        dispatch({ type: 'SELECT_NODE', id })
+        dispatch({ type: 'SET_PANEL', mode: 'relations' })
+        void fetchRelationTypes(state.config.endpoint, id).then((relations) => {
+          dispatch({ type: 'SET_RELATIONS', relations })
+        })
+      }
+
+      dispatch({
+        type: 'SET_LOADING',
+        loading: true,
+        message: all
+          ? `Loading all attached (${direction})…`
+          : `Next hop ×${steps} (${direction})…`,
+      })
+
+      try {
+        let localNodes: GraphNode[] = [...state.graph.nodes]
+        const known = new Set(localNodes.map((n) => n.id))
+        let frontier = [id]
+        let totalAdded = 0
+        let lastDepth = fromDepth
+
+        for (let s = 1; s <= steps; s++) {
+          const depth = fromDepth + s
+          if (depth > MAX_ONTOLOGY_HOPS) break
+
+          const layer = await expandEntityHopLayer(
+            state.config.endpoint,
+            frontier,
+            direction,
+            depth,
+            {
+              maxSubjects: s === 1 ? 1 : all ? 8 : 4,
+              predsPerSubject: all
+                ? direction === 'both'
+                  ? 14
+                  : 18
+                : direction === 'both'
+                  ? 5
+                  : 7,
+              neighborsPerPred: all ? 24 : 6,
+            },
+          )
+
+          const stamped = layer.nodes.map((n) => ({
+            ...n,
+            __hopDepth: depth,
+            __pulse: 1,
+          }))
+
+          let addedHere = 0
+          for (const n of stamped) {
+            if (!known.has(n.id)) {
+              known.add(n.id)
+              localNodes.push(n)
+              addedHere += 1
+            }
+          }
+          totalAdded += addedHere
+          lastDepth = depth
+
+          dispatch({
+            type: 'ADD_NODES',
+            nodes: stamped,
+            links: layer.links,
+            message: `Depth +${s} · +${addedHere}`,
+          })
+
+          if (layer.exhausted || addedHere === 0) {
+            if (s === 1 && addedHere === 0) {
+              dispatch({
+                type: 'ADD_NODES',
+                nodes: [],
+                links: [],
+                message: layer.exhausted
+                  ? `No further ${direction} links on this node`
+                  : `Neighbors already on graph`,
+              })
+            }
+            break
+          }
+
+          frontier = layer.nextFrontier
+            .filter((fid) => fid !== id)
+            .slice(0, all ? 10 : 6)
+          if (!frontier.length) break
+        }
+
+        if (totalAdded > 0 && state.appliedHopDepth < lastDepth) {
+          dispatch({ type: 'SET_APPLIED_HOPS', depth: lastDepth })
+        }
+        dispatch({ type: 'CLEAR_PATH' })
+        if (totalAdded > 0) {
+          dispatch({
+            type: 'ADD_NODES',
+            nodes: [],
+            links: [],
+            message: all
+              ? `All attached · +${totalAdded} · ${direction}`
+              : `Next ${steps} hop${steps === 1 ? '' : 's'} · +${totalAdded} · ${direction}`,
+          })
+        }
+      } catch (err) {
+        dispatch({
+          type: 'SET_ERROR',
+          error: err instanceof Error ? err.message : 'Expand node failed',
+        })
+      } finally {
+        dispatch({ type: 'SET_LOADING', loading: false })
+      }
+    },
+    [
+      state.selectedNodeId,
+      state.graph.nodes,
+      state.config.endpoint,
+      state.appliedHopDepth,
     ],
   )
 
@@ -902,19 +1025,19 @@ export function useOntologyStore() {
 
   const openRelation = useCallback(
     async (relation: RelationType) => {
-      if (!state.selectedNodeId) return
+      const sourceId = expandSubjectId()
+      if (!sourceId) return
       dispatch({ type: 'SET_ACTIVE_RELATION', relation })
       dispatch({ type: 'SET_LOADING', loading: true, message: 'Fetching connected nodes…' })
       try {
         const neighbors = await fetchConnectedNodes(
           state.config.endpoint,
-          state.selectedNodeId,
+          sourceId,
           relation.predicate,
           relation.direction,
           40,
         )
         dispatch({ type: 'SET_NEIGHBORS', neighbors })
-        // Pre-select all so "Add selected" works immediately; user can uncheck
         dispatch({ type: 'SELECT_ALL_NEIGHBORS', selected: true })
       } catch (err) {
         dispatch({
@@ -925,7 +1048,7 @@ export function useOntologyStore() {
         dispatch({ type: 'SET_LOADING', loading: false })
       }
     },
-    [state.config.endpoint, state.selectedNodeId],
+    [state.config.endpoint, expandSubjectId],
   )
 
   const toggleNeighbor = useCallback((uri: string) => {
@@ -936,58 +1059,56 @@ export function useOntologyStore() {
     dispatch({ type: 'SELECT_ALL_NEIGHBORS', selected })
   }, [])
 
+  const addViaActiveRelation = useCallback(
+    (items: ConnectedNode[], message: string) => {
+      const sourceId = expandSubjectId()
+      if (!sourceId || !state.activeRelation || !items.length) return
+      const hopDepth = Math.min(
+        MAX_ONTOLOGY_HOPS,
+        Math.max(1, (state.graph.nodes.find((n) => n.id === sourceId)?.__hopDepth ?? 0) + 1),
+      )
+      const { nodes, links } = graphPiecesViaHub(
+        sourceId,
+        state.activeRelation,
+        items,
+        hopDepth,
+      )
+      dispatch({ type: 'ADD_NODES', nodes, links, message })
+      if (state.appliedHopDepth < hopDepth) {
+        dispatch({ type: 'SET_APPLIED_HOPS', depth: hopDepth })
+      }
+    },
+    [
+      expandSubjectId,
+      state.activeRelation,
+      state.graph.nodes,
+      state.appliedHopDepth,
+    ],
+  )
+
   const addSelectedNeighbors = useCallback(() => {
-    if (!state.selectedNodeId || !state.activeRelation) return
     const toAdd = state.neighbors.filter((n) => state.selectedNeighborUris.has(n.uri))
     if (!toAdd.length) return
-    const { nodes, links } = toGraphPieces(
-      state.selectedNodeId,
-      state.activeRelation,
+    addViaActiveRelation(
       toAdd,
+      `Added ${toAdd.length} selected node${toAdd.length === 1 ? '' : 's'}`,
     )
-    dispatch({
-      type: 'ADD_NODES',
-      nodes,
-      links,
-      message: `Added ${toAdd.length} selected node${toAdd.length === 1 ? '' : 's'} with edges`,
-    })
-  }, [
-    state.selectedNodeId,
-    state.activeRelation,
-    state.neighbors,
-    state.selectedNeighborUris,
-  ])
+  }, [state.neighbors, state.selectedNeighborUris, addViaActiveRelation])
 
   const addAllNeighbors = useCallback(() => {
-    if (!state.selectedNodeId || !state.activeRelation || !state.neighbors.length) return
-    const { nodes, links } = toGraphPieces(
-      state.selectedNodeId,
-      state.activeRelation,
+    if (!state.neighbors.length) return
+    addViaActiveRelation(
       state.neighbors,
+      `Added all ${state.neighbors.length} connected node${state.neighbors.length === 1 ? '' : 's'}`,
     )
-    dispatch({
-      type: 'ADD_NODES',
-      nodes,
-      links,
-      message: `Added all ${state.neighbors.length} connected node${state.neighbors.length === 1 ? '' : 's'}`,
-    })
     dispatch({ type: 'SELECT_ALL_NEIGHBORS', selected: true })
-  }, [state.selectedNodeId, state.activeRelation, state.neighbors])
+  }, [state.neighbors, addViaActiveRelation])
 
   const addSingleNeighbor = useCallback(
     (neighbor: ConnectedNode) => {
-      if (!state.selectedNodeId || !state.activeRelation) return
-      const { nodes, links } = toGraphPieces(state.selectedNodeId, state.activeRelation, [
-        neighbor,
-      ])
-      dispatch({
-        type: 'ADD_NODES',
-        nodes,
-        links,
-        message: `Linked “${neighbor.label}”`,
-      })
+      addViaActiveRelation([neighbor], `Linked “${neighbor.label}”`)
     },
-    [state.selectedNodeId, state.activeRelation],
+    [addViaActiveRelation],
   )
 
   const addSearchResult = useCallback(
@@ -1051,6 +1172,7 @@ export function useOntologyStore() {
     bootstrap,
     selectNode,
     expandRelation,
+    expandNode,
     expandHops,
     shrinkHops,
     applyHops,

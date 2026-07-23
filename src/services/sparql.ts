@@ -20,6 +20,7 @@ import {
   type SparqlBinding,
 } from './sparql-core'
 import * as wd from './wikidata'
+import { stampTreeHopDepths } from '../utils/treeLayout'
 
 export {
   isWikidataEndpoint,
@@ -43,6 +44,7 @@ const WD_CLASS_IDS = new Set([
   'Q1656682',
   'Q2221906',
   'Q35120',
+  'Q11424', // film
 ])
 
 export function isOntologyClassUri(uri: string): boolean {
@@ -969,7 +971,7 @@ export async function fetchOntologyClassMap(endpoint: string): Promise<{
   )
 
   return {
-    nodes: [...nodes.values()],
+    nodes: stampTreeHopDepths([...nodes.values()], links, OWL_THING),
     links,
     rootId: OWL_THING,
   }

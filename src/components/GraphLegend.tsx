@@ -1,8 +1,8 @@
 import { HOP_STYLE } from '../utils/nodeKind'
 
-/** Legend for ontology-respecting hops (Sholay-style). */
+/** Legend for entity-distance hops (max 5). */
 export function GraphLegend() {
-  const hops = [0, 1, 2, 3] as const
+  const hops = [0, 1, 2, 3, 4, 5] as const
 
   return (
     <aside className="graph-legend" aria-label="Ontology hop legend">
@@ -22,7 +22,8 @@ export function GraphLegend() {
         ))}
       </ul>
       <p className="legend-note">
-        Entity → Property hub → Values. Matching colours = same property cluster.
+        Each hop = property hubs + values at that distance. Out / In / Both choose direction.
+        Matching colours = same property cluster.
       </p>
     </aside>
   )

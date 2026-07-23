@@ -1,11 +1,14 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import cytoscape, { type Core, type ElementDefinition } from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 import type { GraphData, GraphLink, GraphNode } from '../types/ontology'
 import { hopStyle, kindOf, labelBoxSize, ontologyNodeColors, HOP_RADIUS } from '../utils/nodeKind'
+import { graphHasOntologyHubs } from '../utils/treeLayout'
 import { GraphLegend } from './GraphLegend'
 
 cytoscape.use(coseBilkent)
+
+export type GraphLayoutMode = 'hops' | 'orbit' | 'auto'
 
 interface Props {
   data: GraphData
@@ -16,7 +19,11 @@ interface Props {
   fitKey?: number
   pathNodeIds?: string[]
   pathLinkIds?: string[]
+  layoutMode?: GraphLayoutMode
+  showLegend?: boolean
   onNodeClick: (node: GraphNode) => void
+  /** Double-click an entity to load everything attached (next hop, full). */
+  onNodeExpand?: (node: GraphNode) => void
   onBackgroundClick?: () => void
 }
 
@@ -38,7 +45,7 @@ function buildElements(data: GraphData): ElementDefinition[] {
 
   const nodes: ElementDefinition[] = data.nodes.map((n) => {
     const kind = kindOf(n)
-    const hop = Math.min(3, Math.max(0, n.__hopDepth ?? 0))
+    const hop = Math.min(5, Math.max(0, n.__hopDepth ?? 0))
     const colors = ontologyNodeColors(n)
     const isRoot = n.id === rootId
     const box = labelBoxSize(n.label, {
@@ -57,7 +64,12 @@ function buildElements(data: GraphData): ElementDefinition[] {
         fullLabel: n.label,
         kind,
         hopDepth: hop,
-        hopBadge: hop === 0 ? 'ENTITY' : hop === 1 ? 'PROP' : hop === 2 ? 'VALUE' : `H${hop}`,
+        hopBadge:
+          hop === 0
+            ? 'ENTITY'
+            : n.type === 'relation'
+              ? `P${hop}`
+              : `H${hop}`,
         nodeType: n.type,
         uri: n.uri,
         boxW: width,
@@ -94,7 +106,7 @@ function buildElements(data: GraphData): ElementDefinition[] {
     const hs = hopOf.get(source) ?? 0
     const ht = hopOf.get(target) ?? 0
     // Colour edge by the outer hop so ring connections feel unified
-    const edgeHop = Math.min(3, Math.max(hs, ht))
+    const edgeHop = Math.min(5, Math.max(hs, ht))
     const palette = hopStyle(edgeHop)
     const toLiteral =
       data.nodes.find((n) => n.id === source)?.type === 'literal' ||
@@ -170,9 +182,9 @@ const CY_STYLE = [
   {
     selector: 'node.hop-3',
     style: {
-      'border-style': 'dashed',
-      'border-width': 2,
-      opacity: 0.95,
+      'border-style': 'solid',
+      'border-width': 2.5,
+      opacity: 1,
     },
   },
   {
@@ -271,111 +283,138 @@ const CY_STYLE = [
   },
 ] as cytoscape.StylesheetStyle[]
 
-/** Place seed centre, property hubs on a ring, values clustered beside each hub. */
+/** Place seed centre; each hop ring = hubs + values at that entity distance. */
 function placeHopOrbits(cy: Core, data: GraphData) {
   const root =
     data.nodes.find((n) => (n.__hopDepth ?? 0) === 0)?.id ?? data.nodes[0]?.id
   if (!root) return
 
-  const hubs = data.nodes.filter((n) => n.type === 'relation' && (n.__hopDepth ?? 0) === 1)
-  const values = data.nodes.filter((n) => (n.__hopDepth ?? 0) === 2)
-  const hop3 = data.nodes.filter((n) => (n.__hopDepth ?? 0) >= 3)
-
   cy.batch(() => {
     const rootNode = cy.getElementById(root)
     if (rootNode.nonempty()) rootNode.position({ x: 0, y: 0 })
 
-    const hubR = HOP_RADIUS[1]
-    hubs.forEach((h, i) => {
-      const angle = (i / Math.max(hubs.length, 1)) * Math.PI * 2 - Math.PI / 2
-      const el = cy.getElementById(h.id)
-      if (el.empty()) return
-      el.position({
-        x: Math.cos(angle) * hubR,
-        y: Math.sin(angle) * hubR,
-      })
-    })
+    for (let hop = 1; hop <= 5; hop++) {
+      const ringR = HOP_RADIUS[hop] ?? 150 + hop * 100
+      const atHop = data.nodes.filter((n) => (n.__hopDepth ?? 0) === hop)
+      const hubs = atHop.filter((n) => n.type === 'relation')
+      const values = atHop.filter((n) => n.type !== 'relation')
 
-    // Values fan out just beyond their parent hub (short edges)
-    const byHub = new Map<string, typeof values>()
-    for (const v of values) {
-      const key = v.__parentId || v.__clusterKey || ''
-      const list = byHub.get(key) ?? []
-      list.push(v)
-      byHub.set(key, list)
-    }
-
-    for (const [hubId, kids] of byHub) {
-      const hubEl = cy.getElementById(hubId)
-      const hubPos = hubEl.nonempty()
-        ? hubEl.position()
-        : { x: 0, y: hubR }
-      const baseAngle = Math.atan2(hubPos.y, hubPos.x)
-      kids.forEach((v, i) => {
-        const spread = (i - (kids.length - 1) / 2) * 0.28
-        const dist = 95 + (i % 2) * 18
-        const el = cy.getElementById(v.id)
+      hubs.forEach((h, i) => {
+        const angle = (i / Math.max(hubs.length, 1)) * Math.PI * 2 - Math.PI / 2
+        const el = cy.getElementById(h.id)
         if (el.empty()) return
         el.position({
-          x: hubPos.x + Math.cos(baseAngle + spread) * dist,
-          y: hubPos.y + Math.sin(baseAngle + spread) * dist,
+          x: Math.cos(angle) * ringR,
+          y: Math.sin(angle) * ringR,
         })
       })
-    }
 
-    // Hop 3 on outer ring
-    const r3 = HOP_RADIUS[3]
-    hop3.forEach((n, i) => {
-      const angle = (i / Math.max(hop3.length, 1)) * Math.PI * 2 - Math.PI / 2
-      const el = cy.getElementById(n.id)
-      if (el.empty()) return
-      el.position({
-        x: Math.cos(angle) * r3,
-        y: Math.sin(angle) * r3,
-      })
-    })
+      const byHub = new Map<string, typeof values>()
+      for (const v of values) {
+        const key = v.__parentId || v.__clusterKey || ''
+        const list = byHub.get(key) ?? []
+        list.push(v)
+        byHub.set(key, list)
+      }
+
+      for (const [hubId, kids] of byHub) {
+        const hubEl = cy.getElementById(hubId)
+        const hubPos = hubEl.nonempty()
+          ? hubEl.position()
+          : { x: Math.cos(-Math.PI / 2) * ringR, y: Math.sin(-Math.PI / 2) * ringR }
+        const baseAngle = Math.atan2(hubPos.y, hubPos.x)
+        kids.forEach((v, i) => {
+          const spread = (i - (kids.length - 1) / 2) * 0.28
+          const dist = 90 + (i % 2) * 16
+          const el = cy.getElementById(v.id)
+          if (el.empty()) return
+          el.position({
+            x: hubPos.x + Math.cos(baseAngle + spread) * dist,
+            y: hubPos.y + Math.sin(baseAngle + spread) * dist,
+          })
+        })
+      }
+    }
   })
 }
 
-function runLayout(cy: Core, data: GraphData, selectedNodeId: string | null) {
-  const hasHops = data.nodes.some((n) => (n.__hopDepth ?? 0) > 0)
-  const n = data.nodes.length
+/** Pure concentric rings by hop depth (orbit view). */
+function placeOrbitRings(cy: Core, data: GraphData) {
+  const buckets = new Map<number, string[]>()
+  for (const n of data.nodes) {
+    const h = Math.min(5, Math.max(0, n.__hopDepth ?? 0))
+    const list = buckets.get(h) ?? []
+    list.push(n.id)
+    buckets.set(h, list)
+  }
+  const radii = [...HOP_RADIUS]
+  const twist = [0, 0.12, -0.08, 0.18, -0.14, 0.1]
 
-  if (hasHops && n <= 120) {
-    placeHopOrbits(cy, data)
-    cy.animate(
-      {
-        fit: { eles: cy.elements(), padding: 40 },
-      },
-      { duration: 420 },
-    )
-    if (selectedNodeId) {
-      const el = cy.getElementById(selectedNodeId)
-      if (el.nonempty()) {
-        cy.animate(
-          { center: { eles: el }, zoom: Math.min(Math.max(cy.zoom(), 1.05), 1.55) },
-          { duration: 280 },
-        )
-      }
+  cy.batch(() => {
+    for (const [hop, ids] of buckets) {
+      const r = radii[hop] ?? 150 + hop * 95
+      ids.forEach((id, i) => {
+        const angle =
+          (twist[hop] ?? 0) + (i / Math.max(ids.length, 1)) * Math.PI * 2 - Math.PI / 2
+        const wobble = hop === 0 ? 0 : Math.sin(i * 1.7) * 10
+        const el = cy.getElementById(id)
+        if (el.empty()) return
+        el.position({
+          x: Math.cos(angle) * (r + wobble),
+          y: Math.sin(angle) * (r + wobble),
+        })
+      })
     }
+  })
+}
+
+function fitAfter(cy: Core) {
+  cy.stop()
+  // Instant fit — avoid looping animations that look like “nodes keep moving”
+  cy.fit(undefined, 48)
+}
+
+function runLayout(
+  cy: Core,
+  data: GraphData,
+  selectedNodeId: string | null,
+  mode: GraphLayoutMode,
+) {
+  const n = data.nodes.length
+  if (!n) return
+
+  cy.stop()
+  const hasHubs = graphHasOntologyHubs(data)
+
+  if (mode === 'orbit' || (mode === 'hops' && !hasHubs)) {
+    // Class map & trees: concentric by stamped hop depth (not stacked at origin)
+    placeOrbitRings(cy, data)
+    fitAfter(cy)
     return
   }
 
+  if (mode === 'hops') {
+    placeHopOrbits(cy, data)
+    fitAfter(cy)
+    return
+  }
+
+  // Auto-arrange — run once, no continuous simulation
   cy.layout({
     name: 'cose-bilkent',
-    animate: n < 60 ? 'end' : false,
-    animationDuration: 480,
+    animate: false,
     fit: true,
-    padding: 40,
+    padding: 48,
     nodeDimensionsIncludeLabels: true,
-    idealEdgeLength: 72,
-    edgeElasticity: 0.35,
-    nestingFactor: 0.1,
-    gravity: 0.55,
-    numIter: n > 80 ? 1600 : 2200,
+    idealEdgeLength: 100,
+    edgeElasticity: 0.25,
+    nestingFactor: 0.08,
+    gravity: 0.4,
+    numIter: Math.min(2500, 800 + n * 25),
     tile: true,
-    randomize: false,
+    randomize: true,
   } as cytoscape.LayoutOptions).run()
+  void selectedNodeId
 }
 
 function applyHighlights(
@@ -434,15 +473,8 @@ function applyHighlights(
       }
     })
 
-    if (pathNodeIds.length > 1) {
-      const keep = new Set([...pathNodeIds, ...pathLinkIds])
-      cy.elements().forEach((ele) => {
-        if (!keep.has(ele.id()) && !ele.hasClass('selected')) ele.addClass('faded')
-        else ele.removeClass('faded')
-      })
-    } else {
-      cy.elements().removeClass('faded')
-    }
+    // Gold path highlight only — never ghost/disable other hops (esp. hop 3)
+    cy.elements().removeClass('faded')
   })
 }
 
@@ -459,18 +491,30 @@ export function KnowledgeGraph({
   fitKey = 0,
   pathNodeIds = [],
   pathLinkIds = [],
+  layoutMode = 'hops',
+  showLegend = true,
   onNodeClick,
+  onNodeExpand,
   onBackgroundClick,
 }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const cyRef = useRef<Core | null>(null)
   const onNodeClickRef = useRef(onNodeClick)
+  const onNodeExpandRef = useRef(onNodeExpand)
   const onBgRef = useRef(onBackgroundClick)
   const rawMap = useRef(new Map<string, GraphNode>())
   const lastEpoch = useRef(graphEpoch)
   const lastSig = useRef('')
+  const layoutModeRef = useRef(layoutMode)
+  const dataRef = useRef(data)
+  const selectedRef = useRef(selectedNodeId)
+  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null)
+  layoutModeRef.current = layoutMode
+  dataRef.current = data
+  selectedRef.current = selectedNodeId
 
   onNodeClickRef.current = onNodeClick
+  onNodeExpandRef.current = onNodeExpand
   onBgRef.current = onBackgroundClick
 
   useEffect(() => {
@@ -485,6 +529,7 @@ export function KnowledgeGraph({
       maxZoom: 3.2,
       wheelSensitivity: 0.28,
       boxSelectionEnabled: false,
+      autoungrabify: false,
     })
     cyRef.current = cy
 
@@ -492,6 +537,22 @@ export function KnowledgeGraph({
       const raw = rawMap.current.get(evt.target.id())
       if (raw) onNodeClickRef.current(raw)
     })
+    cy.on('dbltap', 'node', (evt) => {
+      const raw = rawMap.current.get(evt.target.id())
+      if (raw) onNodeExpandRef.current?.(raw)
+    })
+    cy.on('mouseover', 'node', (evt) => {
+      const full = String(evt.target.data('fullLabel') || evt.target.data('label') || '')
+      const short = String(evt.target.data('label') || '')
+      if (!full || full === short) {
+        setTip(null)
+        return
+      }
+      const pos = evt.renderedPosition || evt.target.renderedPosition()
+      setTip({ text: full, x: pos.x, y: pos.y })
+    })
+    cy.on('mouseout', 'node', () => setTip(null))
+    cy.on('viewport', () => setTip(null))
     cy.on('tap', (evt) => {
       if (evt.target === cy) onBgRef.current?.()
     })
@@ -502,13 +563,13 @@ export function KnowledgeGraph({
     }
   }, [])
 
+  // Sync graph structure — layout only when membership changes
   useEffect(() => {
     const cy = cyRef.current
     if (!cy) return
 
     rawMap.current = new Map(data.nodes.map((n) => [n.id, n]))
-    const sig = `${graphEpoch}|${data.nodes.map((n) => n.id).join(',')}|${data.links.map((l) => l.id).join(',')}`
-    const epochChanged = lastEpoch.current !== graphEpoch
+    const sig = `${graphEpoch}|${data.nodes.map((n) => n.id).sort().join(',')}|${data.links.map((l) => l.id).sort().join(',')}`
     const structureChanged = lastSig.current !== sig
     lastEpoch.current = graphEpoch
     lastSig.current = sig
@@ -518,14 +579,10 @@ export function KnowledgeGraph({
         cy.elements().remove()
         cy.add(buildElements(data))
       })
-      runLayout(cy, data, selectedNodeId)
+      runLayout(cy, data, selectedNodeId, layoutModeRef.current)
     }
 
     applyHighlights(cy, selectedNodeId, pathNodeIds, pathLinkIds, highlightedLinkId)
-
-    if (epochChanged && !structureChanged && data.nodes.length) {
-      runLayout(cy, data, selectedNodeId)
-    }
   }, [
     data,
     selectedNodeId,
@@ -535,16 +592,19 @@ export function KnowledgeGraph({
     graphEpoch,
   ])
 
+  // Manual layout mode / rearrange only — never depend on `data` (avoids endless motion)
   useEffect(() => {
-    if (layoutKey === 0) return
     const cy = cyRef.current
-    if (!cy || data.nodes.length === 0) return
-    runLayout(cy, data, selectedNodeId)
-  }, [layoutKey, data, selectedNodeId])
+    if (!cy || dataRef.current.nodes.length === 0) return
+    runLayout(cy, dataRef.current, selectedRef.current, layoutMode)
+  }, [layoutMode, layoutKey])
 
   useEffect(() => {
     if (fitKey === 0) return
-    cyRef.current?.fit(undefined, 40)
+    const cy = cyRef.current
+    if (!cy) return
+    cy.stop()
+    cy.fit(undefined, 44)
   }, [fitKey])
 
   useEffect(() => {
@@ -552,38 +612,47 @@ export function KnowledgeGraph({
     if (!cy || !selectedNodeId) return
     const el = cy.getElementById(selectedNodeId)
     if (el.empty()) return
-    cy.animate(
-      { center: { eles: el }, zoom: Math.max(cy.zoom(), 1.1) },
-      { duration: 280 },
-    )
+    // Gentle pan only — do not re-run force layout
+    cy.stop()
+    cy.center(el)
   }, [selectedNodeId])
 
   const hopsVisible = maxHop(data)
 
   return (
     <div className="graph-stage">
-      <div className="graph-atmosphere hop-sky" aria-hidden />
+      <div className={`graph-atmosphere hop-sky mode-${layoutMode}`} aria-hidden />
       <div className="graph-grid" aria-hidden />
-      <div className="hop-orbit-guide" aria-hidden data-hops={hopsVisible}>
-        {[1, 2, 3].map((h) =>
-          hopsVisible >= h ? (
-            <span
-              key={h}
-              className={`hop-orbit-ring hop-orbit-${h}`}
-              style={{
-                // Visual only — mirrors HOP_RADIUS scale relatively
-                width: `${28 + h * 22}%`,
-                height: `${28 + h * 22}%`,
-              }}
-            />
-          ) : null,
-        )}
-      </div>
+      {layoutMode === 'orbit' && data.nodes.length > 0 && (
+        <div className="hop-orbit-guide" aria-hidden data-hops={hopsVisible}>
+          {[1, 2, 3].map((h) =>
+            hopsVisible >= h ? (
+              <span
+                key={h}
+                className={`hop-orbit-ring hop-orbit-${h}`}
+                style={{
+                  width: `${28 + h * 22}%`,
+                  height: `${28 + h * 22}%`,
+                }}
+              />
+            ) : null,
+          )}
+        </div>
+      )}
       <div className="cy-host" ref={wrapRef} />
-      {data.nodes.length > 0 && <GraphLegend />}
+      {tip && (
+        <div className="graph-tip" style={{ left: tip.x, top: tip.y }} role="tooltip">
+          {tip.text}
+          <span className="graph-tip-hint"> · double-click to show all attached</span>
+        </div>
+      )}
+      {data.nodes.length > 0 && showLegend && <GraphLegend />}
       {data.nodes.length > 0 && (
         <div className="graph-hint">
-          Same colour cluster = property + its values · Entity → Property → Value
+          {layoutMode === 'hops' &&
+            'Click a value (e.g. award) → Show all attached · double-click expands'}
+          {layoutMode === 'orbit' && 'Orbit view · concentric hop rings'}
+          {layoutMode === 'auto' && 'Auto-arrange · organic force layout'}
         </div>
       )}
     </div>

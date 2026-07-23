@@ -3,7 +3,7 @@ import { ConnectionBar } from './components/ConnectionBar'
 import { ExplorePanel } from './components/ExplorePanel'
 import { GraphFooter } from './components/GraphFooter'
 import { GraphSearch } from './components/GraphSearch'
-import { KnowledgeGraph } from './components/KnowledgeGraph'
+import { KnowledgeGraph, type GraphLayoutMode } from './components/KnowledgeGraph'
 import { useOntologyStore } from './hooks/useOntologyStore'
 import { SPARQL_SOURCES, type SparqlSourceId } from './types/ontology'
 
@@ -16,6 +16,9 @@ export default function App() {
   const [layoutKey, setLayoutKey] = useState(0)
   const [fitKey, setFitKey] = useState(0)
   const [suggestOpen, setSuggestOpen] = useState(false)
+  const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>('hops')
+  const [legendVisible, setLegendVisible] = useState(true)
+  const [fullscreen, setFullscreen] = useState(false)
 
   useEffect(() => {
     void store.bootstrap({ startMode: 'classmap' })
@@ -23,18 +26,30 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (isResource) setPanelCollapsed(false)
-  }, [store.config.seedUri, isResource])
+    if (isResource && !fullscreen) setPanelCollapsed(false)
+  }, [store.config.seedUri, isResource, fullscreen])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && fullscreen) setFullscreen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [fullscreen])
 
   const onNodeClick = (nodeId: string, type?: string) => {
-    // Literal data-property chips are display-only
-    if (type === 'literal' || type === 'relation' || nodeId.startsWith('literal:') || nodeId.startsWith('relhub:')) {
+    if (
+      type === 'literal' ||
+      type === 'relation' ||
+      nodeId.startsWith('literal:') ||
+      nodeId.startsWith('relhub:')
+    ) {
       void store.selectNode(nodeId)
-      setPanelCollapsed(false)
+      if (!fullscreen) setPanelCollapsed(false)
       return
     }
     void store.selectNode(nodeId)
-    setPanelCollapsed(false)
+    if (!fullscreen) setPanelCollapsed(false)
   }
 
   const onChangeSource = (source: SparqlSourceId) => {
@@ -45,30 +60,34 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
-      <ConnectionBar
-        endpoint={store.config.endpoint}
-        source={store.config.source}
-        loading={store.loading}
-        onChangeSource={onChangeSource}
-        onBrowseClasses={() => void store.bootstrap({ startMode: 'classmap' })}
-        onClear={() => {
-          store.clearGraph()
-          void store.bootstrap({ startMode: 'classmap' })
-        }}
-        hasGraph={hasGraph}
-      />
+    <div className={`app-shell ${fullscreen ? 'canvas-fullscreen' : ''}`}>
+      {!fullscreen && (
+        <ConnectionBar
+          endpoint={store.config.endpoint}
+          source={store.config.source}
+          loading={store.loading}
+          onChangeSource={onChangeSource}
+          onBrowseClasses={() => void store.bootstrap({ startMode: 'classmap' })}
+          onClear={() => {
+            store.clearGraph()
+            void store.bootstrap({ startMode: 'classmap' })
+          }}
+          hasGraph={hasGraph}
+        />
+      )}
 
-      <main className={`workspace ${panelCollapsed ? 'panel-collapsed' : ''}`}>
+      <main
+        className={`workspace ${panelCollapsed || fullscreen ? 'panel-collapsed' : ''} ${fullscreen ? 'is-fullscreen' : ''}`}
+      >
         <div className="stage-column">
           <GraphSearch
             store={store}
-            showExamples={isClassMap && !store.loading}
+            showExamples={isClassMap && !store.loading && !fullscreen}
             onSuggestOpenChange={setSuggestOpen}
           />
 
           <section className="canvas-frame">
-            {isClassMap && !store.loading && !suggestOpen && (
+            {isClassMap && !store.loading && !suggestOpen && !fullscreen && (
               <div className="map-guide">
                 <p>
                   Browse the{' '}
@@ -87,7 +106,23 @@ export default function App() {
               fitKey={fitKey}
               pathNodeIds={store.pathNodeIds}
               pathLinkIds={store.pathLinkIds}
+              layoutMode={layoutMode}
+              showLegend={legendVisible}
               onNodeClick={(node) => onNodeClick(node.id, node.type)}
+              onNodeExpand={(node) => {
+                if (
+                  node.type === 'literal' ||
+                  node.type === 'relation' ||
+                  node.id.startsWith('literal:') ||
+                  node.id.startsWith('relhub:')
+                ) {
+                  void store.selectNode(node.id)
+                  if (!fullscreen) setPanelCollapsed(false)
+                  return
+                }
+                if (!fullscreen) setPanelCollapsed(false)
+                void store.expandNode('both', { all: true, steps: 1, nodeId: node.id })
+              }}
             />
           </section>
 
@@ -99,16 +134,30 @@ export default function App() {
             loading={store.loading}
             loadingMessage={store.loadingMessage}
             lastMessage={store.lastExpandMessage}
+            layoutMode={layoutMode}
+            legendVisible={legendVisible}
+            fullscreen={fullscreen}
+            onLayoutMode={setLayoutMode}
+            onToggleLegend={() => setLegendVisible((v) => !v)}
+            onToggleFullscreen={() => {
+              setFullscreen((v) => {
+                const next = !v
+                if (next) setPanelCollapsed(true)
+                return next
+              })
+            }}
+            onAutoArrange={() => setLayoutKey((k) => k + 1)}
             onFitView={() => setFitKey((k) => k + 1)}
-            onResetLayout={() => setLayoutKey((k) => k + 1)}
           />
         </div>
 
-        <ExplorePanel
-          store={store}
-          collapsed={panelCollapsed}
-          onToggleCollapse={() => setPanelCollapsed((c) => !c)}
-        />
+        {!fullscreen && (
+          <ExplorePanel
+            store={store}
+            collapsed={panelCollapsed}
+            onToggleCollapse={() => setPanelCollapsed((c) => !c)}
+          />
+        )}
       </main>
 
       {store.error && (
