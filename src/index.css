@@ -1001,7 +1001,8 @@ button {
   flex: 1 1 auto;
   min-height: 0;
   height: 100%;
-  background: var(--canvas);
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 40%, #122428 0%, var(--canvas) 70%);
   border-left: 1px solid rgba(255, 255, 255, 0.06);
   border-right: 1px solid rgba(255, 255, 255, 0.06);
   overflow: hidden;
@@ -1484,13 +1485,88 @@ button {
   pointer-events: none;
 }
 
-.graph-atmosphere.hop-sky {
+.graph-atmosphere.hop-sky,
+.graph-atmosphere.fact-field {
   background:
-    radial-gradient(circle at 50% 48%, rgba(155, 107, 219, 0.14), transparent 22%),
-    radial-gradient(circle at 50% 48%, rgba(61, 220, 151, 0.1), transparent 38%),
-    radial-gradient(circle at 50% 48%, rgba(224, 122, 58, 0.08), transparent 52%),
-    radial-gradient(circle at 50% 48%, rgba(90, 140, 210, 0.07), transparent 68%),
-    radial-gradient(ellipse 80% 60% at 50% 50%, rgba(12, 26, 28, 0.2), transparent 70%);
+    radial-gradient(ellipse 55% 45% at 50% 42%, rgba(232, 197, 106, 0.07), transparent 55%),
+    radial-gradient(ellipse 70% 55% at 30% 70%, rgba(61, 220, 151, 0.06), transparent 50%),
+    radial-gradient(ellipse 50% 40% at 78% 28%, rgba(90, 140, 160, 0.07), transparent 45%),
+    linear-gradient(165deg, #0a1517 0%, #0c1a1c 45%, #0e1f22 100%);
+}
+
+.graph-focus {
+  position: absolute;
+  z-index: 5;
+  left: 0.75rem;
+  top: 0.75rem;
+  max-width: min(340px, 72vw);
+  padding: 0.65rem 0.8rem 0.7rem;
+  border-radius: 14px;
+  background: rgba(10, 22, 24, 0.92);
+  border: 1px solid rgba(232, 197, 106, 0.35);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(12px);
+  color: #e8f4f2;
+  pointer-events: none;
+  animation: rise-in 0.35s ease both;
+}
+
+.graph-focus-kicker {
+  margin: 0;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--gold-soft);
+}
+
+.graph-focus-title {
+  margin: 0.25rem 0 0.2rem;
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 400;
+  line-height: 1.2;
+  color: #fff8e8;
+}
+
+.graph-focus-meta {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: rgba(215, 235, 232, 0.7);
+}
+
+.graph-tip-title {
+  display: block;
+  font-weight: 650;
+  margin-bottom: 0.15rem;
+}
+
+.graph-tip-line {
+  display: block;
+  font-size: 0.7rem;
+  opacity: 0.78;
+}
+
+.graph-legend {
+  width: 168px;
+}
+
+.legend-note.tight {
+  margin: 0 0 0.45rem;
+}
+
+.legend-title.spaced {
+  margin-top: 0.55rem;
+}
+
+.legend-kinds {
+  margin-bottom: 0.15rem;
+}
+
+.legend-swatch.thin {
+  width: 14px;
+  height: 10px;
 }
 
 .hop-orbit-guide {

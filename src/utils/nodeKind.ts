@@ -18,66 +18,66 @@ export function kindOf(node: GraphNode): NodeKind {
   if (node.type === 'literal') return 'literal'
   if (node.type === 'class') return 'class'
   const blob = `${node.classes?.join(' ') ?? ''} ${node.label}`.toLowerCase()
-  if (/human|person|actor|director|writer|composer/.test(blob)) return 'person'
-  if (/film|movie|work|book|album|series|television/.test(blob)) return 'work'
+  if (/human|person|actor|director|writer|composer|singer/.test(blob)) return 'person'
+  if (/film|movie|work|book|album|series|television|song/.test(blob)) return 'work'
   if (/character|fictional/.test(blob)) return 'character'
-  if (/organisation|organization|company|studio/.test(blob)) return 'org'
-  if (/city|country|place|location|geographic/.test(blob)) return 'place'
-  if (/genre|concept|award|event/.test(blob)) return 'concept'
+  if (/organisation|organization|company|studio|band/.test(blob)) return 'org'
+  if (/city|country|place|location|geographic|village/.test(blob)) return 'place'
+  if (/genre|concept|award|event|prize/.test(blob)) return 'concept'
   return 'entity'
 }
 
-/** Entity-distance hop legend (0 seed · 1–5 neighbor layers). */
+/** Soft hop ring tints for edges / deep layers. */
 export const HOP_STYLE: Record<
   number,
   { fill: string; border: string; text: string; edge: string; glow: string; label: string }
 > = {
   0: {
-    fill: '#1e3a5f',
-    border: '#7eb8da',
-    text: '#ffffff',
-    edge: 'rgba(126, 184, 218, 0.7)',
-    glow: 'rgba(126, 184, 218, 0.35)',
-    label: 'Hop 0 · Entity',
+    fill: '#14282c',
+    border: '#e8c56a',
+    text: '#fff8e8',
+    edge: 'rgba(232, 197, 106, 0.75)',
+    glow: 'rgba(232, 197, 106, 0.35)',
+    label: 'Seed entity',
   },
   1: {
-    fill: '#2f9e6b',
-    border: '#2f9e6b',
-    text: '#ffffff',
-    edge: 'rgba(47, 158, 107, 0.75)',
-    glow: 'rgba(47, 158, 107, 0.3)',
-    label: 'Hop 1 · Neighbors',
+    fill: '#1a4a42',
+    border: '#3ddc97',
+    text: '#e8fff6',
+    edge: 'rgba(61, 220, 151, 0.7)',
+    glow: 'rgba(61, 220, 151, 0.28)',
+    label: 'Hop 1',
   },
   2: {
-    fill: '#ffffff',
-    border: '#2f9e6b',
-    text: '#1a3d2e',
-    edge: 'rgba(47, 158, 107, 0.55)',
-    glow: 'rgba(47, 158, 107, 0.2)',
+    fill: '#f7fbfa',
+    border: '#1a9b8e',
+    text: '#102226',
+    edge: 'rgba(26, 155, 142, 0.55)',
+    glow: 'rgba(26, 155, 142, 0.2)',
     label: 'Hop 2',
   },
   3: {
-    fill: '#e8f0ff',
-    border: '#3a6fbf',
+    fill: '#eef4f8',
+    border: '#4a7fa3',
     text: '#16325c',
-    edge: 'rgba(90, 140, 210, 0.7)',
-    glow: 'rgba(90, 140, 210, 0.3)',
+    edge: 'rgba(74, 127, 163, 0.65)',
+    glow: 'rgba(74, 127, 163, 0.25)',
     label: 'Hop 3',
   },
   4: {
-    fill: '#f5e8ff',
-    border: '#8b5cb8',
-    text: '#3a1f52',
-    edge: 'rgba(139, 92, 184, 0.65)',
-    glow: 'rgba(139, 92, 184, 0.25)',
+    fill: '#f6f0e8',
+    border: '#a67c52',
+    text: '#3d2a18',
+    edge: 'rgba(166, 124, 82, 0.6)',
+    glow: 'rgba(166, 124, 82, 0.22)',
     label: 'Hop 4',
   },
   5: {
-    fill: '#fff0e0',
-    border: '#d4782a',
-    text: '#5c3010',
-    edge: 'rgba(212, 120, 42, 0.65)',
-    glow: 'rgba(212, 120, 42, 0.25)',
+    fill: '#f3ebe4',
+    border: '#c45b3a',
+    text: '#4a2418',
+    edge: 'rgba(196, 91, 58, 0.6)',
+    glow: 'rgba(196, 91, 58, 0.22)',
     label: 'Hop 5',
   },
 }
@@ -87,7 +87,102 @@ export function hopStyle(depth: number) {
   return HOP_STYLE[d] ?? HOP_STYLE[1]
 }
 
-/** Colour for a node: relation hubs solid by cluster; values white + matching border. */
+/** Semantic colours for entity kinds (what the thing is). */
+export const KIND_STYLE: Record<
+  NodeKind,
+  { fill: string; border: string; text: string; shape: string; label: string }
+> = {
+  work: { fill: '#1e2a3a', border: '#7eb0d4', text: '#e8f2fa', shape: 'round-rectangle', label: 'Work' },
+  person: { fill: '#14352c', border: '#3ddc97', text: '#e8fff4', shape: 'round-rectangle', label: 'Person' },
+  character: { fill: '#3a2418', border: '#e08a4a', text: '#fff0e4', shape: 'round-rectangle', label: 'Character' },
+  place: { fill: '#2a2818', border: '#c9b46a', text: '#f7f0d8', shape: 'round-rectangle', label: 'Place' },
+  org: { fill: '#1a2838', border: '#6a8fc4', text: '#e4ecf8', shape: 'round-rectangle', label: 'Org' },
+  concept: { fill: '#2e1e28', border: '#d47a9a', text: '#fce8f0', shape: 'round-rectangle', label: 'Concept' },
+  literal: { fill: '#f5faf9', border: '#2a9a9e', text: '#0d4a47', shape: 'round-rectangle', label: 'Literal' },
+  class: { fill: '#1a3038', border: '#5a9ab8', text: '#e5f2fa', shape: 'round-rectangle', label: 'Class' },
+  relation: { fill: '#1f6b52', border: '#3ddc97', text: '#ffffff', shape: 'round-rectangle', label: 'Property' },
+  entity: { fill: '#1a2c30', border: '#5a9a92', text: '#e8f4f2', shape: 'round-rectangle', label: 'Entity' },
+}
+
+function clip(s: string, max: number) {
+  const t = s.trim()
+  if (t.length <= max) return t
+  return `${t.slice(0, Math.max(1, max - 1))}…`
+}
+
+/**
+ * Multi-line fact card for the canvas:
+ * line1 title · line2 kind/class or IN/OUT property · line3 hop + links
+ */
+export function informativeCard(
+  node: GraphNode,
+  opts?: { root?: boolean; degree?: number; childCount?: number },
+): {
+  label: string
+  title: string
+  subtitle: string
+  meta: string
+  width: number
+  height: number
+  textMax: number
+  kind: NodeKind
+} {
+  const kind = kindOf(node)
+  const hop = node.__hopDepth ?? 0
+  const isRel = node.type === 'relation'
+  const isLit = node.type === 'literal'
+  const root = !!opts?.root
+  const degree = opts?.degree ?? node.__degree ?? 0
+  const kids = opts?.childCount ?? 0
+
+  const titleMax = root ? 30 : isRel ? 18 : isLit ? 22 : 26
+  const title = clip(node.label, titleMax)
+
+  let subtitle: string
+  if (isRel) {
+    const dir = node.__direction === 'in' ? '← IN' : '→ OUT'
+    subtitle = `${dir} · property`
+  } else if (isLit) {
+    subtitle = 'Data value'
+  } else {
+    const cls = node.classes?.[0] ? clip(node.classes[0], 20) : KIND_STYLE[kind].label
+    subtitle = `${KIND_STYLE[kind].label} · ${cls}`
+  }
+
+  let meta: string
+  if (isRel) {
+    meta = kids > 0 ? `${kids} linked · hop ${hop}` : `hop ${hop}`
+  } else if (root) {
+    meta = degree > 0 ? `seed · ${degree} links` : 'seed entity'
+  } else if (isLit) {
+    meta = `hop ${hop}`
+  } else {
+    meta = degree > 0 ? `hop ${hop} · ${degree} links` : `hop ${hop}`
+  }
+
+  const label = `${title}\n${subtitle}\n${meta}`
+  const longest = Math.max(title.length, subtitle.length, meta.length)
+  const charW = root ? 7.2 : isRel ? 6.4 : 6.6
+  const padX = root ? 28 : isRel ? 18 : 20
+  const width = Math.max(
+    root ? 148 : isRel ? 108 : isLit ? 96 : 118,
+    Math.min(longest * charW + padX, root ? 200 : isRel ? 148 : 168),
+  )
+  const height = root ? 64 : isRel ? 52 : isLit ? 48 : 56
+
+  return {
+    label,
+    title,
+    subtitle,
+    meta,
+    width,
+    height,
+    textMax: Math.max(64, width - 16),
+    kind,
+  }
+}
+
+/** Colour: seed gold; properties by cluster; entities by semantic kind. */
 export function ontologyNodeColors(node: GraphNode): {
   fill: string
   border: string
@@ -95,69 +190,42 @@ export function ontologyNodeColors(node: GraphNode): {
 } {
   const hop = node.__hopDepth ?? 0
   if (hop === 0) {
-    return { fill: '#1e3a5f', border: '#9ec9e8', text: '#ffffff' }
+    return { fill: '#14282c', border: '#e8c56a', text: '#fff8e8' }
   }
 
-  const key = node.__clusterKey || node.id
-  const pal = CLUSTER_PALETTE[clusterColorIndex(key)]
-
   if (node.type === 'relation') {
+    const key = node.__clusterKey || node.id
+    const pal = CLUSTER_PALETTE[clusterColorIndex(key)]
     return { fill: pal.fill, border: pal.border, text: pal.text }
   }
 
-  // Values share the cluster border; deeper hops tint fill lightly via HOP_STYLE
-  if (hop >= 3) {
+  if (node.type === 'literal') {
+    return { fill: '#f5faf9', border: '#2a9a9e', text: '#0d4a47' }
+  }
+
+  const kind = kindOf(node)
+  const ks = KIND_STYLE[kind]
+  if (hop >= 4) {
     const hs = hopStyle(hop)
-    return { fill: hs.fill, border: pal.border, text: hs.text }
+    return { fill: hs.fill, border: ks.border, text: hs.text }
   }
-
-  return {
-    fill: pal.valueFill,
-    border: pal.border,
-    text: pal.valueText,
-  }
+  return { fill: ks.fill, border: ks.border, text: ks.text }
 }
 
-export const KIND_STYLE: Record<
-  NodeKind,
-  { fill: string; border: string; text: string; shape: string; label: string }
-> = {
-  work: { fill: '#efe6ff', border: '#9b6bdb', text: '#3b2166', shape: 'round-rectangle', label: 'Work / Film' },
-  person: { fill: '#dff8ec', border: '#1f9a68', text: '#0d4a32', shape: 'round-rectangle', label: 'Person' },
-  character: { fill: '#ffe8d9', border: '#d46a2f', text: '#6b2e0c', shape: 'round-rectangle', label: 'Character' },
-  place: { fill: '#f5edd8', border: '#8b6914', text: '#4a3808', shape: 'round-rectangle', label: 'Place' },
-  org: { fill: '#e4ecf8', border: '#3a5f9e', text: '#1a3358', shape: 'round-rectangle', label: 'Organisation' },
-  concept: { fill: '#fce4f0', border: '#c44584', text: '#6b1f48', shape: 'round-rectangle', label: 'Genre / Award' },
-  literal: { fill: '#ffffff', border: '#2a9a9e', text: '#0d4a47', shape: 'round-rectangle', label: 'Data value' },
-  class: { fill: '#e5f2fa', border: '#4a8fb8', text: '#1a455c', shape: 'round-rectangle', label: 'Class' },
-  relation: { fill: '#2f9e6b', border: '#2f9e6b', text: '#ffffff', shape: 'round-rectangle', label: 'Property' },
-  entity: { fill: '#ffffff', border: '#2a8f78', text: '#0d4a3c', shape: 'round-rectangle', label: 'Entity' },
-}
-
+/** @deprecated use informativeCard */
 export function labelBoxSize(
   rawLabel: string,
   opts?: { root?: boolean; literal?: boolean; relation?: boolean },
 ): { label: string; width: number; height: number; textMax: number } {
-  const maxChars = opts?.literal ? 22 : opts?.root ? 26 : opts?.relation ? 18 : 22
-  const t = rawLabel.trim()
-  const label = t.length > maxChars ? `${t.slice(0, maxChars - 1)}…` : t
-  const lineTarget = opts?.relation ? 11 : opts?.literal ? 12 : 13
-  const lines = Math.max(1, Math.min(2, Math.ceil(label.length / lineTarget)))
-  const longestLine = Math.min(label.length, lineTarget + 1)
-  const padX = opts?.root ? 24 : opts?.relation ? 16 : 18
-  const padY = opts?.root ? 16 : 12
-  const charW = opts?.root ? 7 : 6.2
-  const lineH = opts?.root ? 14 : 12
-  const width = Math.max(
-    opts?.root ? 118 : opts?.relation ? 88 : opts?.literal ? 78 : 86,
-    Math.min(longestLine * charW + padX, opts?.root ? 170 : opts?.relation ? 130 : 140),
-  )
-  const height = Math.max(
-    opts?.literal ? 30 : opts?.relation ? 34 : 36,
-    lines * lineH + padY,
-  )
-  return { label, width, height, textMax: Math.max(52, width - 14) }
+  const fake: GraphNode = {
+    id: '_',
+    uri: '_',
+    label: rawLabel,
+    type: opts?.relation ? 'relation' : opts?.literal ? 'literal' : 'resource',
+  }
+  const c = informativeCard(fake, { root: opts?.root })
+  return { label: c.title, width: c.width, height: c.height, textMax: c.textMax }
 }
 
-/** Seed centre; rings for entity-distance hops 1–5. */
-export const HOP_RADIUS = [0, 150, 260, 360, 450, 530] as const
+/** Seed centre; rings for entity-distance hops 1–5 (wider for fact cards). */
+export const HOP_RADIUS = [0, 175, 300, 420, 520, 610] as const
