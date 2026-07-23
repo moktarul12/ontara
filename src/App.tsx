@@ -17,7 +17,7 @@ export default function App() {
   const [fitKey, setFitKey] = useState(0)
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>('hops')
-  const [legendVisible, setLegendVisible] = useState(true)
+  const [legendVisible, setLegendVisible] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
 
   useEffect(() => {
