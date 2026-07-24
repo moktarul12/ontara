@@ -159,6 +159,55 @@ export async function wdConnectedNodes(
   )
 }
 
+const WDT_IMAGE = `${WDT}P18`
+const WDT_LOGO = `${WDT}P154`
+
+/** Turn a commons / FilePath IRI into a CORS-friendly thumbnail URL. */
+export function commonsImageUrl(fileUri: string, width = 320): string | null {
+  if (!fileUri) return null
+  try {
+    if (/special:filepath/i.test(fileUri)) {
+      const u = new URL(fileUri)
+      u.protocol = 'https:'
+      u.searchParams.set('width', String(width))
+      return u.toString()
+    }
+    // "File:Foo.jpg" or raw filename
+    const name = decodeURIComponent(
+      fileUri
+        .replace(/^.*\/(File:|Special:FilePath\/)/i, '')
+        .replace(/^File:/i, '')
+        .split('?')[0] || '',
+    ).trim()
+    if (!name || name.length > 240) return null
+    return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(name)}?width=${width}`
+  } catch {
+    return null
+  }
+}
+
+/** Fetch entity portrait/logo for UI (never as a graph neighbor node). */
+export async function wdEntityImage(
+  endpoint: string,
+  uri: string,
+  width = 320,
+): Promise<string | null> {
+  const query = `
+    SELECT ?img WHERE {
+      { <${uri}> <${WDT_IMAGE}> ?img }
+      UNION
+      { <${uri}> <${WDT_LOGO}> ?img }
+    } LIMIT 1
+  `
+  try {
+    const rows = await runSparql(endpoint, query, 6000)
+    const raw = rows[0]?.img?.value
+    return raw ? commonsImageUrl(raw, width) : null
+  } catch {
+    return null
+  }
+}
+
 /** Classify Wikidata entity for curated dossier UX. */
 export async function wdEntityKind(
   endpoint: string,

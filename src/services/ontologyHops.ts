@@ -518,14 +518,18 @@ export async function fetchOntologyKnowledgeGraph(
   let relationTypes: RelationType[]
   let entityKind: EntityKind = 'other'
 
+  let imageUrl: string | null = null
+
   if (isWikidataEndpoint(endpoint)) {
-    ;[label, classes, dataProperties, relationTypes, entityKind] = await Promise.all([
-      wd.wdLabel(endpoint, uri),
-      fetchResourceClasses(endpoint, uri),
-      fetchDataProperties(endpoint, uri),
-      fetchRelationTypes(endpoint, uri),
-      wd.wdEntityKind(endpoint, uri),
-    ])
+    ;[label, classes, dataProperties, relationTypes, entityKind, imageUrl] =
+      await Promise.all([
+        wd.wdLabel(endpoint, uri),
+        fetchResourceClasses(endpoint, uri),
+        fetchDataProperties(endpoint, uri),
+        fetchRelationTypes(endpoint, uri),
+        wd.wdEntityKind(endpoint, uri),
+        wd.wdEntityImage(endpoint, uri, 360),
+      ])
   } else {
     ;[label, classes, dataProperties, relationTypes] = await Promise.all([
       fetchResourceLabel(endpoint, uri),
@@ -547,6 +551,7 @@ export async function fetchOntologyKnowledgeGraph(
     dataProperties,
     __hopDepth: 0,
     __pulse: 1,
+    __imageUrl: imageUrl || undefined,
   }
 
   const dossier = entityKind === 'person' || entityKind === 'org'

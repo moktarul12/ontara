@@ -16,9 +16,11 @@ interface Props {
   onToggleFullscreen: () => void
   onAutoArrange: () => void
   onFitView: () => void
+  onExportPng?: () => void
+  onExportJpg?: () => void
 }
 
-/** Sticky footer — stats, layout modes, fullscreen, legend. */
+/** Sticky footer — stats, layout modes, export, fullscreen, legend. */
 export function GraphFooter({
   nodeCount,
   linkCount,
@@ -35,6 +37,8 @@ export function GraphFooter({
   onToggleFullscreen,
   onAutoArrange,
   onFitView,
+  onExportPng,
+  onExportJpg,
 }: Props) {
   const hasGraph = nodeCount > 0
 
@@ -120,6 +124,24 @@ export function GraphFooter({
           title="Fit graph in view"
         >
           Fit
+        </button>
+        <button
+          type="button"
+          className="footer-btn"
+          disabled={!hasGraph || !onExportPng}
+          onClick={() => onExportPng?.()}
+          title="Export graph as PNG image"
+        >
+          PNG
+        </button>
+        <button
+          type="button"
+          className="footer-btn"
+          disabled={!hasGraph || !onExportJpg}
+          onClick={() => onExportJpg?.()}
+          title="Export graph as JPG image"
+        >
+          JPG
         </button>
         <button
           type="button"

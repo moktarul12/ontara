@@ -48,7 +48,8 @@ export function GraphLegend() {
         ))}
       </ul>
       <p className="legend-note">
-        Hop = entity distance. Property chips are not an extra hop.
+        Arrows mark source → destination. Portraits import from Wikidata — not as graph nodes.
+        Hop = entity distance; property chips are not an extra hop.
       </p>
     </aside>
   )

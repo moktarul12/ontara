@@ -20,6 +20,8 @@ import {
   localName,
   type HopDirection,
 } from '../services/sparql'
+import { isWikidataEndpoint } from '../services/sparql-core'
+import * as wd from '../services/wikidata'
 import {
   expandEntityHopLayer,
   expandKnowledgeFacet,
@@ -88,7 +90,7 @@ type Action =
   | { type: 'SET_PANEL'; mode: PanelMode }
   | { type: 'ADD_NODES'; nodes: GraphNode[]; links: GraphLink[]; message?: string }
   | { type: 'HIGHLIGHT_LINK'; id: string | null }
-  | { type: 'UPDATE_NODE_META'; id: string; classes?: string[]; dataProperties?: DataProperty[] }
+  | { type: 'UPDATE_NODE_META'; id: string; classes?: string[]; dataProperties?: DataProperty[]; imageUrl?: string }
   | { type: 'CLEAR_EXPAND_MESSAGE' }
   | { type: 'CLEAR_GRAPH' }
   | {
@@ -262,6 +264,7 @@ function reducer(state: ExploreState, action: Action): ExploreState {
               ...n,
               classes: action.classes ?? n.classes,
               dataProperties: action.dataProperties ?? n.dataProperties,
+              __imageUrl: action.imageUrl ?? n.__imageUrl,
             }
           : n,
       )
@@ -618,10 +621,19 @@ export function useOntologyStore() {
         void Promise.all([
           fetchDataProperties(state.config.endpoint, id),
           fetchResourceClasses(state.config.endpoint, id),
-        ]).then(([props, classes]) => {
+          isWikidataEndpoint(state.config.endpoint)
+            ? wd.wdEntityImage(state.config.endpoint, id, 280)
+            : Promise.resolve(null),
+        ]).then(([props, classes, imageUrl]) => {
           if (gen !== selectGen.current) return
           dispatch({ type: 'SET_DATA_PROPERTIES', props })
-          dispatch({ type: 'UPDATE_NODE_META', id, classes, dataProperties: props })
+          dispatch({
+            type: 'UPDATE_NODE_META',
+            id,
+            classes,
+            dataProperties: props,
+            imageUrl: imageUrl || undefined,
+          })
         })
       } catch (err) {
         if (gen !== selectGen.current) return

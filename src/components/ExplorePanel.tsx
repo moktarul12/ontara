@@ -105,9 +105,15 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
     <aside className="inspector">
       <header className="inspector-top">
         <div className="inspector-identity">
-          <div className="mono-tile" aria-hidden>
-            {initial}
-          </div>
+          {selectedNode.__imageUrl ? (
+            <div className="mono-portrait" aria-hidden>
+              <img src={selectedNode.__imageUrl} alt="" loading="lazy" />
+            </div>
+          ) : (
+            <div className="mono-tile" aria-hidden>
+              {initial}
+            </div>
+          )}
           <div className="identity-text">
             <p className="inspector-kicker">{kind}</p>
             <h2 className="inspector-title" title={selectedNode.uri}>

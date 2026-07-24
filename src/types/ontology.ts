@@ -24,6 +24,8 @@ export interface GraphNode {
   __parentId?: string
   __predicate?: string
   __direction?: 'out' | 'in'
+  /** Portrait / logo URL for UI (imported from source; not a graph node). */
+  __imageUrl?: string
 }
 
 export interface GraphLink {

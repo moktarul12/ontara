@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ConnectionBar } from './components/ConnectionBar'
 import { ExplorePanel } from './components/ExplorePanel'
 import { FacetBar } from './components/FacetBar'
 import { GraphFooter } from './components/GraphFooter'
 import { GraphSearch } from './components/GraphSearch'
-import { KnowledgeGraph, type GraphLayoutMode } from './components/KnowledgeGraph'
+import {
+  KnowledgeGraph,
+  type GraphLayoutMode,
+  type KnowledgeGraphHandle,
+} from './components/KnowledgeGraph'
 import { useOntologyStore } from './hooks/useOntologyStore'
 import { SPARQL_SOURCES, sourceDisplayName, type SparqlSourceId } from './types/ontology'
 
@@ -20,6 +24,7 @@ export default function App() {
   const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>('hops')
   const [legendVisible, setLegendVisible] = useState(false)
   const [fullscreen, setFullscreen] = useState(false)
+  const graphRef = useRef<KnowledgeGraphHandle>(null)
 
   useEffect(() => {
     void store.bootstrap({ startMode: 'classmap' })
@@ -101,6 +106,7 @@ export default function App() {
             )}
 
             <KnowledgeGraph
+              ref={graphRef}
               data={store.graph}
               selectedNodeId={store.selectedNodeId}
               highlightedLinkId={store.highlightedLinkId}
@@ -151,6 +157,8 @@ export default function App() {
             }}
             onAutoArrange={() => setLayoutKey((k) => k + 1)}
             onFitView={() => setFitKey((k) => k + 1)}
+            onExportPng={() => void graphRef.current?.exportImage('png')}
+            onExportJpg={() => void graphRef.current?.exportImage('jpg')}
           />
         </div>
 

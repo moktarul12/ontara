@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import cytoscape, { type Core, type ElementDefinition } from 'cytoscape'
 import coseBilkent from 'cytoscape-cose-bilkent'
 import type { GraphData, GraphLink, GraphNode } from '../types/ontology'
@@ -17,6 +24,10 @@ import { GraphLegend } from './GraphLegend'
 cytoscape.use(coseBilkent)
 
 export type GraphLayoutMode = 'hops' | 'orbit' | 'auto'
+
+export type KnowledgeGraphHandle = {
+  exportImage: (format: 'png' | 'jpg') => Promise<void>
+}
 
 interface Props {
   data: GraphData
@@ -59,6 +70,15 @@ function childCountMap(data: GraphData): Map<string, number> {
   return kids
 }
 
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 function buildElements(data: GraphData): ElementDefinition[] {
   const hopOf = new Map(data.nodes.map((n) => [n.id, n.__hopDepth ?? 0]))
   const rootId =
@@ -70,11 +90,14 @@ function buildElements(data: GraphData): ElementDefinition[] {
     const hop = Math.min(5, Math.max(0, n.__hopDepth ?? 0))
     const colors = ontologyNodeColors(n)
     const isRoot = n.id === rootId
+    const hasImage = Boolean(n.__imageUrl && (isRoot || n.type === 'resource'))
     const card = informativeCard(n, {
       root: isRoot,
       degree: degrees.get(n.id) ?? 0,
       childCount: children.get(n.id) ?? 0,
     })
+    const boxW = hasImage && isRoot ? Math.max(card.width, 108) : card.width
+    const boxH = hasImage && isRoot ? Math.max(card.height, 118) : card.height
 
     return {
       group: 'nodes',
@@ -90,14 +113,15 @@ function buildElements(data: GraphData): ElementDefinition[] {
         degree: degrees.get(n.id) ?? 0,
         direction: n.__direction ?? '',
         classesLine: (n.classes ?? []).slice(0, 3).join(' · '),
-        boxW: card.width,
-        boxH: card.height,
+        boxW,
+        boxH,
         textMax: card.textMax,
         clusterKey: n.__clusterKey ?? '',
         parentId: n.__parentId ?? '',
         fill: colors.fill,
         border: colors.border,
         textColor: colors.text,
+        imageUrl: n.__imageUrl ?? '',
       },
       classes: [
         `hop-${hop}`,
@@ -105,17 +129,35 @@ function buildElements(data: GraphData): ElementDefinition[] {
         n.type === 'literal' ? 'is-literal' : '',
         n.type === 'relation' ? 'is-relation' : '',
         isRoot ? 'is-root' : '',
+        hasImage ? 'has-image' : '',
       ]
         .filter(Boolean)
         .join(' '),
       style: {
-        width: card.width,
-        height: card.height,
+        width: boxW,
+        height: boxH,
         'background-color': colors.fill,
         'border-color': colors.border,
         color: colors.text,
         shape: 'round-rectangle',
         'text-max-width': card.textMax,
+        ...(hasImage
+          ? {
+              'background-image': n.__imageUrl,
+              'background-fit': 'cover',
+              'background-clip': 'node',
+              'background-image-opacity': 1,
+              'background-position-y': '0%',
+              'background-height': isRoot ? '68%' : '100%',
+              'background-width': '100%',
+              'text-valign': isRoot ? 'bottom' : 'center',
+              'text-margin-y': isRoot ? -6 : 0,
+              'text-background-color': colors.fill,
+              'text-background-opacity': isRoot ? 0.88 : 0,
+              'text-background-padding': '3px',
+              'text-background-shape': 'roundrectangle',
+            }
+          : {}),
       },
     }
   })
@@ -131,7 +173,7 @@ function buildElements(data: GraphData): ElementDefinition[] {
     const hubEdge =
       srcNode?.type === 'relation' || tgtNode?.type === 'relation'
     const toLiteral = srcNode?.type === 'literal' || tgtNode?.type === 'literal'
-    // Hub edges stay silent — predicate lives on the chip
+    const dir = srcNode?.__direction || tgtNode?.__direction || 'out'
     const label = hubEdge ? '' : (l.predicateLabel || '').slice(0, 16)
 
     return {
@@ -141,20 +183,27 @@ function buildElements(data: GraphData): ElementDefinition[] {
         source,
         target,
         label,
-        fullLabel: l.predicateLabel || srcNode?.label || tgtNode?.label || '',
+        fullLabel:
+          l.predicateLabel ||
+          srcNode?.label ||
+          tgtNode?.label ||
+          'related to',
         predicate: l.predicate,
         edgeHop,
+        flow: dir,
       },
       classes: [
         `edge-hop-${edgeHop}`,
         toLiteral ? 'literal-edge' : '',
         hubEdge ? 'hub-edge' : '',
+        dir === 'in' ? 'flow-in' : 'flow-out',
       ]
         .filter(Boolean)
         .join(' '),
       style: {
         'line-color': palette.edge,
         'target-arrow-color': palette.edge,
+        'source-arrow-color': palette.edge,
       },
     }
   })
@@ -203,6 +252,13 @@ const CY_STYLE = [
     },
   },
   {
+    selector: 'node.has-image',
+    style: {
+      'background-opacity': 1,
+      'border-width': 2.5,
+    },
+  },
+  {
     selector: 'node.selected',
     style: {
       'border-color': '#e8c56a',
@@ -236,48 +292,64 @@ const CY_STYLE = [
   {
     selector: 'edge',
     style: {
-      width: 1.6,
-      'target-arrow-shape': 'triangle',
-      'arrow-scale': 0.65,
+      width: 2,
       'curve-style': 'bezier',
-      'control-point-step-size': 22,
+      'control-point-step-size': 28,
+      'target-arrow-shape': 'triangle',
+      'target-arrow-fill': 'filled',
+      'arrow-scale': 1.15,
+      'source-endpoint': 'outside-to-node',
+      'target-endpoint': 'outside-to-node',
       label: 'data(label)',
       'font-family': 'Outfit, system-ui, sans-serif',
       'font-size': 8,
       'font-weight': 600,
-      color: '#b8ccc8',
+      color: '#c5ddd8',
       'text-background-color': '#0e1c1e',
-      'text-background-opacity': 0.85,
+      'text-background-opacity': 0.88,
       'text-background-padding': '2px',
       'text-background-shape': 'roundrectangle',
       'text-rotation': 'autorotate',
-      'text-margin-y': -6,
-      opacity: 0.85,
+      'text-margin-y': -8,
+      opacity: 0.92,
       'z-index': 1,
     },
   },
   {
     selector: 'edge.hub-edge',
     style: {
-      width: 1.4,
-      'target-arrow-shape': 'none',
+      width: 1.85,
+      'target-arrow-shape': 'triangle',
+      'target-arrow-fill': 'filled',
+      'arrow-scale': 1.05,
       label: '',
-      opacity: 0.55,
+      opacity: 0.78,
+    },
+  },
+  {
+    selector: 'edge.flow-in',
+    style: {
+      'line-style': 'solid',
+      'target-arrow-shape': 'triangle',
+      width: 2.1,
     },
   },
   {
     selector: 'edge.literal-edge',
     style: {
       'line-style': 'dashed',
-      width: 1.2,
+      width: 1.4,
+      'target-arrow-shape': 'tee',
+      'arrow-scale': 0.9,
     },
   },
   {
     selector: 'edge.hot',
     style: {
-      width: 2.4,
-      'line-color': 'rgba(232, 197, 106, 0.9)',
-      'target-arrow-color': 'rgba(232, 197, 106, 0.95)',
+      width: 2.8,
+      'line-color': 'rgba(232, 197, 106, 0.95)',
+      'target-arrow-color': 'rgba(232, 197, 106, 1)',
+      'arrow-scale': 1.25,
       opacity: 1,
       'z-index': 20,
     },
@@ -285,20 +357,16 @@ const CY_STYLE = [
   {
     selector: 'edge.on-path',
     style: {
-      width: 3,
+      width: 3.2,
       'line-color': '#e8c56a',
       'target-arrow-color': '#e8c56a',
+      'arrow-scale': 1.3,
       opacity: 1,
       'z-index': 25,
     },
   },
 ] as cytoscape.StylesheetStyle[]
 
-/**
- * Proper KG layout:
- * Seed at centre.
- * For each entity hop: property chips on an inner arc, values fanned past their hub.
- */
 function placeHopOrbits(cy: Core, data: GraphData) {
   const root =
     data.nodes.find((n) => (n.__hopDepth ?? 0) === 0)?.id ?? data.nodes[0]?.id
@@ -357,13 +425,12 @@ function placeHopOrbits(cy: Core, data: GraphData) {
 function placeOrbitRings(cy: Core, data: GraphData) {
   const buckets = new Map<number, string[]>()
   for (const n of data.nodes) {
-    if (n.type === 'relation') continue // hubs handled with parents in hops; skip in pure orbit
+    if (n.type === 'relation') continue
     const h = Math.min(5, Math.max(0, n.__hopDepth ?? 0))
     const list = buckets.get(h) ?? []
     list.push(n.id)
     buckets.set(h, list)
   }
-  // Place hubs near their parent entity angle
   const hubs = data.nodes.filter((n) => n.type === 'relation')
 
   cy.batch(() => {
@@ -459,14 +526,17 @@ function applyHighlights(
       const boxW = Number(node.data('boxW') ?? 100)
       const boxH = Number(node.data('boxH') ?? 44)
       const bump = selected ? 8 : onPath ? 4 : 0
-      node.style({
+      const next: Record<string, string | number> = {
         width: boxW + bump,
         height: boxH + bump * 0.2,
         'background-color': node.data('fill'),
         'border-color': selected || onPath ? '#e8c56a' : node.data('border'),
         color: node.data('textColor'),
         'text-max-width': Number(node.data('textMax') ?? boxW - 14),
-      })
+      }
+      const img = String(node.data('imageUrl') || '')
+      if (img) next['background-image'] = img
+      node.style(next)
     })
 
     cy.edges().forEach((edge) => {
@@ -487,200 +557,255 @@ function applyHighlights(
         edge.style({
           'line-color': palette.edge,
           'target-arrow-color': palette.edge,
+          'target-arrow-shape': 'triangle',
+          'arrow-scale': edge.hasClass('hub-edge') ? 1.05 : 1.15,
         })
       }
     })
   })
 }
 
-export function KnowledgeGraph({
-  data,
-  selectedNodeId,
-  highlightedLinkId,
-  graphEpoch = 0,
-  layoutKey = 0,
-  fitKey = 0,
-  pathNodeIds = [],
-  pathLinkIds = [],
-  layoutMode = 'hops',
-  showLegend = true,
-  onNodeClick,
-  onNodeExpand,
-  onBackgroundClick,
-}: Props) {
-  const wrapRef = useRef<HTMLDivElement>(null)
-  const cyRef = useRef<Core | null>(null)
-  const onNodeClickRef = useRef(onNodeClick)
-  const onNodeExpandRef = useRef(onNodeExpand)
-  const onBgRef = useRef(onBackgroundClick)
-  const rawMap = useRef(new Map<string, GraphNode>())
-  const lastSig = useRef('')
-  const layoutModeRef = useRef(layoutMode)
-  const dataRef = useRef(data)
-  const selectedRef = useRef(selectedNodeId)
-  const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(null)
-  layoutModeRef.current = layoutMode
-  dataRef.current = data
-  selectedRef.current = selectedNodeId
-  onNodeClickRef.current = onNodeClick
-  onNodeExpandRef.current = onNodeExpand
-  onBgRef.current = onBackgroundClick
+export const KnowledgeGraph = forwardRef<KnowledgeGraphHandle, Props>(
+  function KnowledgeGraph(
+    {
+      data,
+      selectedNodeId,
+      highlightedLinkId,
+      graphEpoch = 0,
+      layoutKey = 0,
+      fitKey = 0,
+      pathNodeIds = [],
+      pathLinkIds = [],
+      layoutMode = 'hops',
+      showLegend = true,
+      onNodeClick,
+      onNodeExpand,
+      onBackgroundClick,
+    },
+    ref,
+  ) {
+    const wrapRef = useRef<HTMLDivElement>(null)
+    const cyRef = useRef<Core | null>(null)
+    const onNodeClickRef = useRef(onNodeClick)
+    const onNodeExpandRef = useRef(onNodeExpand)
+    const onBgRef = useRef(onBackgroundClick)
+    const rawMap = useRef(new Map<string, GraphNode>())
+    const lastSig = useRef('')
+    const layoutModeRef = useRef(layoutMode)
+    const dataRef = useRef(data)
+    const selectedRef = useRef(selectedNodeId)
+    const [tip, setTip] = useState<{ text: string; x: number; y: number } | null>(
+      null,
+    )
+    layoutModeRef.current = layoutMode
+    dataRef.current = data
+    selectedRef.current = selectedNodeId
+    onNodeClickRef.current = onNodeClick
+    onNodeExpandRef.current = onNodeExpand
+    onBgRef.current = onBackgroundClick
 
-  const focus = useMemo(() => {
-    if (!selectedNodeId) return null
-    const n = data.nodes.find((x) => x.id === selectedNodeId)
-    if (!n) return null
-    return {
-      node: n,
-      deg: degreeMap(data).get(n.id) ?? 0,
-      kids: childCountMap(data).get(n.id) ?? 0,
-      kind: kindOf(n),
-      hop: n.__hopDepth ?? 0,
-    }
-  }, [data, selectedNodeId])
+    useImperativeHandle(ref, () => ({
+      exportImage: async (format: 'png' | 'jpg') => {
+        const cy = cyRef.current
+        if (!cy || cy.nodes().length === 0) return
+        const opts = {
+          output: 'blob-promise' as const,
+          bg: '#0c1a1c',
+          full: true,
+          scale: 2,
+          maxWidth: 4096,
+          maxHeight: 4096,
+        }
+        const blob =
+          format === 'jpg'
+            ? ((await cy.jpg(opts)) as Blob)
+            : ((await cy.png(opts)) as Blob)
+        const root =
+          dataRef.current.nodes.find((n) => (n.__hopDepth ?? 0) === 0)?.label ||
+          'knowledge-graph'
+        const safe = root.replace(/[^\w\-]+/g, '_').slice(0, 48)
+        downloadBlob(blob, `${safe}.${format === 'jpg' ? 'jpg' : 'png'}`)
+      },
+    }))
 
-  useEffect(() => {
-    const el = wrapRef.current
-    if (!el) return
-    const cy = cytoscape({
-      container: el,
-      elements: [],
-      style: CY_STYLE,
-      minZoom: 0.18,
-      maxZoom: 3.2,
-      wheelSensitivity: 0.28,
-      boxSelectionEnabled: false,
-      autoungrabify: false,
-    })
-    cyRef.current = cy
+    const focus = useMemo(() => {
+      if (!selectedNodeId) return null
+      const n = data.nodes.find((x) => x.id === selectedNodeId)
+      if (!n) return null
+      return {
+        node: n,
+        deg: degreeMap(data).get(n.id) ?? 0,
+        kids: childCountMap(data).get(n.id) ?? 0,
+        kind: kindOf(n),
+        hop: n.__hopDepth ?? 0,
+      }
+    }, [data, selectedNodeId])
 
-    cy.on('tap', 'node', (evt) => {
-      const raw = rawMap.current.get(evt.target.id())
-      if (raw) onNodeClickRef.current(raw)
-    })
-    cy.on('dbltap', 'node', (evt) => {
-      const raw = rawMap.current.get(evt.target.id())
-      if (raw) onNodeExpandRef.current?.(raw)
-    })
-    cy.on('mouseover', 'node', (evt) => {
-      const full = String(evt.target.data('fullLabel') || '')
-      const subtitle = String(evt.target.data('subtitle') || '')
-      const kind = String(evt.target.data('kind') || '')
-      const hop = evt.target.data('hopDepth')
-      const pos = evt.renderedPosition || evt.target.renderedPosition()
-      setTip({
-        text: [full, subtitle || KIND_STYLE[kind as keyof typeof KIND_STYLE]?.label, `hop ${hop}`]
-          .filter(Boolean)
-          .join('\n'),
-        x: pos.x,
-        y: pos.y,
+    useEffect(() => {
+      const el = wrapRef.current
+      if (!el) return
+      const cy = cytoscape({
+        container: el,
+        elements: [],
+        style: CY_STYLE,
+        minZoom: 0.18,
+        maxZoom: 3.2,
+        wheelSensitivity: 0.28,
+        boxSelectionEnabled: false,
+        autoungrabify: false,
       })
-    })
-    cy.on('mouseover', 'edge', (evt) => {
-      const full = String(evt.target.data('fullLabel') || '')
-      if (!full) return
-      const pos = evt.renderedPosition || evt.target.midpoint()
-      setTip({ text: full, x: pos.x, y: pos.y })
-    })
-    cy.on('mouseout', 'node, edge', () => setTip(null))
-    cy.on('viewport', () => setTip(null))
-    cy.on('tap', (evt) => {
-      if (evt.target === cy) onBgRef.current?.()
-    })
+      cyRef.current = cy
 
-    return () => {
-      cy.destroy()
-      cyRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    const cy = cyRef.current
-    if (!cy) return
-    rawMap.current = new Map(data.nodes.map((n) => [n.id, n]))
-    const sig = `${graphEpoch}|${data.nodes.map((n) => n.id).sort().join(',')}|${data.links.map((l) => l.id).sort().join(',')}`
-    const structureChanged = lastSig.current !== sig
-    lastSig.current = sig
-
-    if (structureChanged) {
-      cy.batch(() => {
-        cy.elements().remove()
-        cy.add(buildElements(data))
+      cy.on('tap', 'node', (evt) => {
+        const raw = rawMap.current.get(evt.target.id())
+        if (raw) onNodeClickRef.current(raw)
       })
-      runLayout(cy, data, selectedNodeId, layoutModeRef.current)
-    }
-    applyHighlights(cy, selectedNodeId, pathNodeIds, pathLinkIds, highlightedLinkId)
-  }, [data, selectedNodeId, pathNodeIds, pathLinkIds, highlightedLinkId, graphEpoch])
+      cy.on('dbltap', 'node', (evt) => {
+        const raw = rawMap.current.get(evt.target.id())
+        if (raw) onNodeExpandRef.current?.(raw)
+      })
+      cy.on('mouseover', 'node', (evt) => {
+        const full = String(evt.target.data('fullLabel') || '')
+        const subtitle = String(evt.target.data('subtitle') || '')
+        const kind = String(evt.target.data('kind') || '')
+        const hop = evt.target.data('hopDepth')
+        const pos = evt.renderedPosition || evt.target.renderedPosition()
+        setTip({
+          text: [
+            full,
+            subtitle || KIND_STYLE[kind as keyof typeof KIND_STYLE]?.label,
+            `hop ${hop}`,
+          ]
+            .filter(Boolean)
+            .join('\n'),
+          x: pos.x,
+          y: pos.y,
+        })
+      })
+      cy.on('mouseover', 'edge', (evt) => {
+        const full = String(evt.target.data('fullLabel') || '')
+        const flow = String(evt.target.data('flow') || 'out')
+        const pos = evt.renderedPosition || evt.target.midpoint()
+        setTip({
+          text: `${full || 'related'}\n${flow === 'in' ? '← incoming' : 'source → destination'}`,
+          x: pos.x,
+          y: pos.y,
+        })
+      })
+      cy.on('mouseout', 'node, edge', () => setTip(null))
+      cy.on('viewport', () => setTip(null))
+      cy.on('tap', (evt) => {
+        if (evt.target === cy) onBgRef.current?.()
+      })
 
-  useEffect(() => {
-    const cy = cyRef.current
-    if (!cy || dataRef.current.nodes.length === 0) return
-    runLayout(cy, dataRef.current, selectedRef.current, layoutMode)
-  }, [layoutMode, layoutKey])
+      return () => {
+        cy.destroy()
+        cyRef.current = null
+      }
+    }, [])
 
-  useEffect(() => {
-    if (fitKey === 0) return
-    const cy = cyRef.current
-    if (!cy) return
-    cy.stop()
-    cy.fit(undefined, 52)
-  }, [fitKey])
+    useEffect(() => {
+      const cy = cyRef.current
+      if (!cy) return
+      rawMap.current = new Map(data.nodes.map((n) => [n.id, n]))
+      const sig = `${graphEpoch}|${data.nodes
+        .map((n) => `${n.id}:${n.__imageUrl || ''}`)
+        .sort()
+        .join(',')}|${data.links
+        .map((l) => l.id)
+        .sort()
+        .join(',')}`
+      const structureChanged = lastSig.current !== sig
+      lastSig.current = sig
 
-  useEffect(() => {
-    const cy = cyRef.current
-    if (!cy || !selectedNodeId) return
-    const el = cy.getElementById(selectedNodeId)
-    if (el.empty()) return
-    cy.stop()
-    cy.center(el)
-  }, [selectedNodeId])
+      if (structureChanged) {
+        cy.batch(() => {
+          cy.elements().remove()
+          cy.add(buildElements(data))
+        })
+        runLayout(cy, data, selectedNodeId, layoutModeRef.current)
+      }
+      applyHighlights(cy, selectedNodeId, pathNodeIds, pathLinkIds, highlightedLinkId)
+    }, [data, selectedNodeId, pathNodeIds, pathLinkIds, highlightedLinkId, graphEpoch])
 
-  const kindLabel = focus ? KIND_STYLE[focus.kind].label : ''
+    useEffect(() => {
+      const cy = cyRef.current
+      if (!cy || dataRef.current.nodes.length === 0) return
+      runLayout(cy, dataRef.current, selectedRef.current, layoutMode)
+    }, [layoutMode, layoutKey])
 
-  return (
-    <div className="graph-stage">
-      <div className={`graph-atmosphere fact-field mode-${layoutMode}`} aria-hidden />
-      <div className="graph-grid" aria-hidden />
-      <div className="cy-host" ref={wrapRef} />
+    useEffect(() => {
+      if (fitKey === 0) return
+      const cy = cyRef.current
+      if (!cy) return
+      cy.stop()
+      cy.fit(undefined, 52)
+    }, [fitKey])
 
-      {focus && (
-        <aside className="graph-focus" aria-live="polite">
-          <p className="graph-focus-kicker">
-            {focus.node.type === 'relation'
-              ? `${focus.node.__direction === 'in' ? 'Incoming' : 'Outgoing'} property`
-              : kindLabel}
-            {' · '}
-            hop {focus.hop}
-          </p>
-          <h3 className="graph-focus-title">{focus.node.label}</h3>
-          <p className="graph-focus-meta">
-            {focus.node.type === 'relation'
-              ? `${focus.kids} value${focus.kids === 1 ? '' : 's'} · click values or expand`
-              : focus.node.classes?.length
-                ? focus.node.classes.slice(0, 3).join(' · ')
-                : 'Entity'}
-            {focus.node.type !== 'relation' ? ` · ${focus.deg} links` : ''}
-            {' · '}
-            double-click expands
-          </p>
-        </aside>
-      )}
+    useEffect(() => {
+      const cy = cyRef.current
+      if (!cy || !selectedNodeId) return
+      const el = cy.getElementById(selectedNodeId)
+      if (el.empty()) return
+      cy.stop()
+      cy.center(el)
+    }, [selectedNodeId])
 
-      {tip && (
-        <div className="graph-tip" style={{ left: tip.x, top: tip.y }} role="tooltip">
-          {tip.text.split('\n').map((line, i) => (
-            <span key={i} className={i === 0 ? 'graph-tip-title' : 'graph-tip-line'}>
-              {line}
-            </span>
-          ))}
-        </div>
-      )}
-      {data.nodes.length > 0 && showLegend && <GraphLegend />}
-      {data.nodes.length > 0 && !focus && (
-        <div className="graph-hint">
-          Seed → property chip → values · start sparse · grow with hops or double-click
-        </div>
-      )}
-    </div>
-  )
-}
+    const kindLabel = focus ? KIND_STYLE[focus.kind].label : ''
+    const portrait = focus?.node.__imageUrl
+
+    return (
+      <div className="graph-stage">
+        <div className={`graph-atmosphere fact-field mode-${layoutMode}`} aria-hidden />
+        <div className="graph-grid" aria-hidden />
+        <div className="cy-host" ref={wrapRef} />
+
+        {focus && (
+          <aside className="graph-focus" aria-live="polite">
+            {portrait && (
+              <div className="graph-focus-portrait">
+                <img src={portrait} alt="" loading="lazy" />
+              </div>
+            )}
+            <div className="graph-focus-copy">
+              <p className="graph-focus-kicker">
+                {focus.node.type === 'relation'
+                  ? `${focus.node.__direction === 'in' ? 'Incoming' : 'Outgoing'} property`
+                  : kindLabel}
+                {' · '}
+                hop {focus.hop}
+              </p>
+              <h3 className="graph-focus-title">{focus.node.label}</h3>
+              <p className="graph-focus-meta">
+                {focus.node.type === 'relation'
+                  ? `${focus.kids} value${focus.kids === 1 ? '' : 's'} · follow arrows to values`
+                  : focus.node.classes?.length
+                    ? focus.node.classes.slice(0, 3).join(' · ')
+                    : 'Entity'}
+                {focus.node.type !== 'relation' ? ` · ${focus.deg} links` : ''}
+                {' · '}
+                arrows show source → destination
+              </p>
+            </div>
+          </aside>
+        )}
+
+        {tip && (
+          <div className="graph-tip" style={{ left: tip.x, top: tip.y }} role="tooltip">
+            {tip.text.split('\n').map((line, i) => (
+              <span key={i} className={i === 0 ? 'graph-tip-title' : 'graph-tip-line'}>
+                {line}
+              </span>
+            ))}
+          </div>
+        )}
+        {data.nodes.length > 0 && showLegend && <GraphLegend />}
+        {data.nodes.length > 0 && !focus && (
+          <div className="graph-hint">
+            Seed → property → values · arrows mark direction · export PNG/JPG from the footer
+          </div>
+        )}
+      </div>
+    )
+  },
+)
