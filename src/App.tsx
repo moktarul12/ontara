@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ConnectionBar } from './components/ConnectionBar'
 import { ExplorePanel } from './components/ExplorePanel'
+import { FacetBar } from './components/FacetBar'
 import { GraphFooter } from './components/GraphFooter'
 import { GraphSearch } from './components/GraphSearch'
 import { KnowledgeGraph, type GraphLayoutMode } from './components/KnowledgeGraph'
@@ -86,13 +87,15 @@ export default function App() {
             onSuggestOpenChange={setSuggestOpen}
           />
 
+          {isResource && !fullscreen && <FacetBar store={store} />}
+
           <section className="canvas-frame">
             {isClassMap && !store.loading && !suggestOpen && !fullscreen && (
               <div className="map-guide">
                 <p>
                   Browse the{' '}
                   <strong>{sourceDisplayName(store.config.source)}</strong>{' '}
-                  class map, or search a person / place above.
+                  class map, or search a person (e.g. Amitabh Bachchan) / company for a full knowledge dossier.
                 </p>
               </div>
             )}

@@ -14,8 +14,15 @@ import {
 } from '../types/ontology'
 import { localName, runSparql, searchWikidataApi } from './sparql-core'
 import { stampTreeHopDepths } from '../utils/treeLayout'
+import {
+  filterWikidataNodes,
+  filterWikidataRelations,
+  isWikidataNoiseObject,
+  isWikidataNoisePredicate,
+} from './wikidataNoise'
 
 const WDT = 'http://www.wikidata.org/prop/direct/'
+const WD_HUMAN = 'http://www.wikidata.org/entity/Q5'
 
 function linkId(source: string, predicate: string, target: string) {
   return `${source}|${predicate}|${target}`
@@ -51,12 +58,14 @@ export async function wdRelationTypes(
       <${uri}> ?p ?o .
       FILTER(STRSTARTS(STR(?p), "${WDT}"))
       FILTER(isIRI(?o))
+      FILTER(!CONTAINS(LCASE(STR(?o)), "/wiki/special:filepath"))
+      FILTER(!REGEX(LCASE(STR(?o)), "\\\\.(jpe?g|png|gif|svg|webp)(\\\\?|#|$)"))
       OPTIONAL {
         ?prop <http://wikiba.se/ontology#directClaim> ?p .
         ?prop <http://www.w3.org/2000/01/rdf-schema#label> ?propLabel
         FILTER(LANG(?propLabel) = "en")
       }
-    } LIMIT 30
+    } LIMIT 50
   `
   const inQuery = `
     SELECT DISTINCT ?p ?propLabel WHERE {
@@ -68,7 +77,7 @@ export async function wdRelationTypes(
         ?prop <http://www.w3.org/2000/01/rdf-schema#label> ?propLabel
         FILTER(LANG(?propLabel) = "en")
       }
-    } LIMIT 15
+    } LIMIT 20
   `
 
   const [outRows, inRows] = await Promise.all([
@@ -76,7 +85,7 @@ export async function wdRelationTypes(
     runSparql(endpoint, inQuery, 12000).catch(() => []),
   ])
 
-  return [
+  return filterWikidataRelations([
     ...outRows.map((r) => ({
       predicate: r.p.value,
       predicateLabel: r.propLabel?.value || localName(r.p.value),
@@ -89,7 +98,7 @@ export async function wdRelationTypes(
       count: -1,
       direction: 'in' as const,
     })),
-  ]
+  ])
 }
 
 export async function wdClassRelationTypes(): Promise<RelationType[]> {
@@ -127,10 +136,14 @@ export async function wdConnectedNodes(
       ? `<${uri}> <${predicate}> ?node .`
       : `?node <${predicate}> <${uri}> .`
 
+  if (isWikidataNoisePredicate(predicate)) return []
+
   const query = `
     SELECT DISTINCT ?node ?label WHERE {
       ${pattern}
       FILTER(isIRI(?node))
+      FILTER(!CONTAINS(LCASE(STR(?node)), "/wiki/special:filepath"))
+      FILTER(!REGEX(LCASE(STR(?node)), "\\\\.(jpe?g|png|gif|svg|webp)(\\\\?|#|$)"))
       OPTIONAL {
         ?node <http://www.w3.org/2000/01/rdf-schema#label> ?label
         FILTER(LANG(?label) = "en")
@@ -138,10 +151,43 @@ export async function wdConnectedNodes(
     } LIMIT ${limit}
   `
   const rows = await runSparql(endpoint, query, 12000)
-  return rows.map((r) => ({
-    uri: r.node.value,
-    label: r.label?.value || localName(r.node.value),
-  }))
+  return filterWikidataNodes(
+    rows.map((r) => ({
+      uri: r.node.value,
+      label: r.label?.value || localName(r.node.value),
+    })),
+  )
+}
+
+/** Classify Wikidata entity for curated dossier UX. */
+export async function wdEntityKind(
+  endpoint: string,
+  uri: string,
+): Promise<'person' | 'org' | 'other'> {
+  const query = `
+    SELECT ?c WHERE {
+      <${uri}> <${WDT_INSTANCE_OF}> ?c .
+    } LIMIT 20
+  `
+  try {
+    const rows = await runSparql(endpoint, query, 6000)
+    const ids = rows.map((r) => r.c.value)
+    if (ids.includes(WD_HUMAN)) return 'person'
+    const orgHints = [
+      'Q43229', // organization
+      'Q4830453', // business
+      'Q783794', // company
+      'Q6881511', // enterprise
+      'Q891723', // public company
+      'Q161726', // multinational
+    ]
+    if (ids.some((id) => orgHints.some((q) => id.endsWith(`/${q}`) || id.endsWith(`#${q}`)))) {
+      return 'org'
+    }
+    return 'other'
+  } catch {
+    return 'other'
+  }
 }
 
 export async function wdDataProperties(
@@ -327,6 +373,7 @@ export async function wdEntityStar(
   for (const r of rows) {
     const o = r.o.value
     const p = r.p.value
+    if (isWikidataNoisePredicate(p) || isWikidataNoiseObject(o)) continue
     const dir = r.dir?.value === 'in' ? 'in' : 'out'
     if (!nodes.has(o)) {
       nodes.set(o, {

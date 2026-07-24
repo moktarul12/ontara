@@ -276,10 +276,10 @@ export function dataPropertyUriForSource(
 }
 
 export const SEARCH_EXAMPLES_WIKIDATA = [
+  { label: 'Amitabh Bachchan', uri: 'http://www.wikidata.org/entity/Q9570' },
+  { label: 'Apple Inc.', uri: 'http://www.wikidata.org/entity/Q312' },
   { label: 'The Dark Knight', uri: 'http://www.wikidata.org/entity/Q163872' },
   { label: 'Albert Einstein', uri: 'http://www.wikidata.org/entity/Q937' },
-  { label: 'Paris', uri: 'http://www.wikidata.org/entity/Q90' },
-  { label: 'Marie Curie', uri: 'http://www.wikidata.org/entity/Q7186' },
 ] as const
 
 export const SEARCH_EXAMPLES_DBPEDIA = [

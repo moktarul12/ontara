@@ -78,8 +78,8 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
         <div className="inspector-empty">
           <p>
             {graph.nodes.length
-              ? 'Click a node on the canvas to see its relations and connected nodes.'
-              : 'Search above to open an entity knowledge graph.'}
+              ? 'Click a node on the canvas to see its relations and connected nodes. Images and websites stay in Data — not on the graph.'
+              : 'Search a person or company above to open a curated knowledge dossier.'}
           </p>
         </div>
       </aside>

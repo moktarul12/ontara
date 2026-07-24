@@ -141,6 +141,108 @@ button {
   z-index: 50;
 }
 
+/* Curated knowledge facets — dossier strip under search */
+.facet-bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  padding: 0.55rem 0.85rem 0.65rem;
+  background: linear-gradient(180deg, #eef6f5 0%, #e4efed 100%);
+  border-left: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  z-index: 30;
+}
+
+.facet-bar-head {
+  min-width: 0;
+  flex: 1 1 160px;
+}
+
+.facet-kicker {
+  margin: 0;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--teal);
+  font-weight: 600;
+}
+
+.facet-title {
+  margin: 0.1rem 0 0;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 400;
+  line-height: 1.15;
+  color: var(--ink);
+}
+
+.facet-hint {
+  margin: 0.15rem 0 0;
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  max-width: 36rem;
+}
+
+.facet-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+.facet-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+  padding: 0.35rem 0.7rem 0.4rem;
+  border: 1px solid rgba(15, 110, 106, 0.28);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-ui);
+  transition: background 0.15s, border-color 0.15s, transform 0.12s;
+}
+
+.facet-chip:hover:not(:disabled) {
+  border-color: var(--teal);
+  background: #fff;
+  transform: translateY(-1px);
+}
+
+.facet-chip.on {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+
+.facet-chip:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.facet-chip-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.facet-chip-hint {
+  font-size: 0.62rem;
+  opacity: 0.72;
+  letter-spacing: 0.02em;
+}
+
+.facet-chip.on .facet-chip-hint {
+  opacity: 0.85;
+}
+
 .search-dock-row {
   display: flex;
   flex-wrap: nowrap;
@@ -2376,6 +2478,19 @@ button {
   .hop-quick {
     width: 100%;
     justify-content: flex-end;
+  }
+
+  .facet-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .facet-chips {
+    justify-content: flex-start;
+  }
+
+  .facet-title {
+    font-size: 1.15rem;
   }
 
   .topbar {

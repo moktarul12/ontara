@@ -22,11 +22,14 @@ import {
 } from '../services/sparql'
 import {
   expandEntityHopLayer,
+  expandKnowledgeFacet,
   fetchOntologyKnowledgeGraph,
   graphPiecesViaHub,
   isRelationHubId,
   MAX_ONTOLOGY_HOPS,
+  type EntityKind,
 } from '../services/ontologyHops'
+import type { FacetId } from '../types/facets'
 import { findShortestPath, type HopTrailStep, type PathStep } from '../utils/graphPath'
 
 type PanelMode = 'idle' | 'relations' | 'neighbors' | 'details' | 'search'
@@ -57,6 +60,10 @@ interface ExploreState {
   hopTrail: HopTrailStep[]
   /** Current max hop depth on the graph (0 = seed only). */
   appliedHopDepth: number
+  /** Curated dossier kind for facet bar (person / org). */
+  entityKind: EntityKind
+  /** Facets already expanded this session (for chip active state). */
+  expandedFacets: FacetId[]
 }
 
 type Action =
@@ -95,6 +102,9 @@ type Action =
   | { type: 'PUSH_HOP_TRAIL'; step: HopTrailStep }
   | { type: 'SET_APPLIED_HOPS'; depth: number }
   | { type: 'TRIM_TO_HOPS'; maxDepth: number; message?: string }
+  | { type: 'SET_ENTITY_KIND'; kind: EntityKind }
+  | { type: 'MARK_FACET'; facetId: FacetId }
+  | { type: 'CLEAR_FACETS' }
 
 const initialState: ExploreState = {
   config: { ...DEFAULT_CONFIG },
@@ -118,6 +128,8 @@ const initialState: ExploreState = {
   pathSteps: [],
   hopTrail: [],
   appliedHopDepth: 0,
+  entityKind: 'other',
+  expandedFacets: [],
 }
 
 function reducer(state: ExploreState, action: Action): ExploreState {
@@ -156,6 +168,7 @@ function reducer(state: ExploreState, action: Action): ExploreState {
           0,
           ...action.graph.nodes.map((n) => n.__hopDepth ?? 0),
         ),
+        expandedFacets: [],
       }
     case 'CLEAR_GRAPH':
       return {
@@ -177,6 +190,8 @@ function reducer(state: ExploreState, action: Action): ExploreState {
         pathSteps: [],
         hopTrail: [],
         appliedHopDepth: 0,
+        entityKind: 'other',
+        expandedFacets: [],
       }
     case 'SELECT_NODE':
       return {
@@ -303,6 +318,17 @@ function reducer(state: ExploreState, action: Action): ExploreState {
         graphEpoch: state.graphEpoch + 1,
       }
     }
+    case 'SET_ENTITY_KIND':
+      return { ...state, entityKind: action.kind }
+    case 'MARK_FACET':
+      return {
+        ...state,
+        expandedFacets: state.expandedFacets.includes(action.facetId)
+          ? state.expandedFacets
+          : [...state.expandedFacets, action.facetId],
+      }
+    case 'CLEAR_FACETS':
+      return { ...state, expandedFacets: [], entityKind: 'other' }
     default:
       return state
   }
@@ -360,6 +386,7 @@ export function useOntologyStore() {
           bumpEpoch: true,
         })
         dispatch({ type: 'SET_APPLIED_HOPS', depth: kg.appliedHopDepth })
+        dispatch({ type: 'SET_ENTITY_KIND', kind: kg.entityKind })
         dispatch({ type: 'SET_RELATIONS', relations: kg.relationTypes })
         dispatch({ type: 'SET_DATA_PROPERTIES', props: kg.dataProperties })
         dispatch({
@@ -1140,6 +1167,51 @@ export function useOntologyStore() {
     [state.selectedNodeId],
   )
 
+  const expandFacet = useCallback(
+    async (facetId: FacetId) => {
+      const subject = state.pathRootId || state.config.seedUri
+      if (!subject) return
+      const gen = ++selectGen.current
+      dispatch({
+        type: 'SET_LOADING',
+        loading: true,
+        message: `Expanding ${facetId}…`,
+      })
+      try {
+        const { nodes, links, message } = await expandKnowledgeFacet(
+          state.config.endpoint,
+          subject,
+          facetId,
+        )
+        if (gen !== selectGen.current) return
+        if (nodes.length) {
+          dispatch({ type: 'ADD_NODES', nodes, links, message })
+        } else {
+          dispatch({ type: 'SET_LOADING', loading: false, message: '' })
+          // still show message via lastExpand
+          dispatch({
+            type: 'ADD_NODES',
+            nodes: [],
+            links: [],
+            message,
+          })
+        }
+        dispatch({ type: 'MARK_FACET', facetId })
+      } catch (err) {
+        if (gen !== selectGen.current) return
+        dispatch({
+          type: 'SET_ERROR',
+          error: err instanceof Error ? err.message : 'Facet expand failed',
+        })
+      } finally {
+        if (gen === selectGen.current) {
+          dispatch({ type: 'SET_LOADING', loading: false })
+        }
+      }
+    },
+    [state.pathRootId, state.config.seedUri, state.config.endpoint],
+  )
+
   const showDetails = useCallback(() => {
     dispatch({ type: 'SET_PANEL', mode: 'details' })
   }, [])
@@ -1173,6 +1245,7 @@ export function useOntologyStore() {
     selectNode,
     expandRelation,
     expandNode,
+    expandFacet,
     expandHops,
     shrinkHops,
     applyHops,

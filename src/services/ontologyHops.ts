@@ -17,6 +17,13 @@ import {
 } from '../services/sparql'
 import { isWikidataEndpoint } from '../services/sparql-core'
 import * as wd from '../services/wikidata'
+import {
+  ORG_FACETS,
+  PERSON_FACETS,
+  PERSON_SEED_FACET_IDS,
+  flattenFacetPredicates,
+  type FacetId,
+} from '../types/facets'
 
 function linkId(source: string, predicate: string, target: string) {
   return `${source}|${predicate}|${target}`
@@ -225,6 +232,8 @@ export async function expandRelationHubValues(
         )
         for (const n of neighbors) {
           if (n.uri === subject) continue
+          if (/\.(jpe?g|png|gif|svg|webp)(\?|#|$)/i.test(n.uri) || /\.(jpe?g|png|gif|svg|webp)$/i.test(n.label))
+            continue
           const pair = `${hub.id}|${n.uri}`
           if (seenPair.has(pair)) continue
           seenPair.add(pair)
@@ -391,10 +400,16 @@ export function graphPiecesViaHub(
 
 export const MAX_ONTOLOGY_HOPS = 5
 
-/** Sparse seed defaults — readable first paint. */
+/** Sparse seed defaults — readable first paint (non-person). */
 export const SEED_PRED_LIMIT = 6
 export const SEED_VALUES_PER_PRED = 3
 export const SEED_DATA_LIMIT = 3
+
+/** Person / org dossier: richer first paint. */
+export const DOSSIER_VALUES_PER_PRED = 5
+export const DOSSIER_DATA_LIMIT = 2
+
+export type EntityKind = 'person' | 'org' | 'other'
 
 export interface OntologyKnowledgeGraph {
   label: string
@@ -405,10 +420,91 @@ export interface OntologyKnowledgeGraph {
   links: GraphLink[]
   message: string
   appliedHopDepth: number
+  entityKind: EntityKind
+}
+
+/** Build relation hubs from an explicit curated predicate list (not SPARQL order). */
+export function buildHubsFromPredicates(
+  subjectUri: string,
+  predicates: Array<{
+    predicate: string
+    direction: 'out' | 'in'
+    label?: string
+  }>,
+  entityHop = 1,
+): { nodes: GraphNode[]; links: GraphLink[] } {
+  const nodes: GraphNode[] = []
+  const links: GraphLink[] = []
+  const seen = new Set<string>()
+
+  for (const rel of predicates) {
+    const id = relationHubId(subjectUri, rel.predicate, rel.direction)
+    if (seen.has(id)) continue
+    seen.add(id)
+    const label = cleanPredLabel(rel.label || localName(rel.predicate))
+    nodes.push({
+      id,
+      uri: rel.predicate,
+      label,
+      type: 'relation',
+      classes: [rel.direction === 'out' ? 'Outgoing' : 'Incoming'],
+      __hopDepth: entityHop,
+      __clusterKey: id,
+      __parentId: subjectUri,
+      __predicate: rel.predicate,
+      __direction: rel.direction,
+      __pulse: 1,
+    })
+    links.push({
+      id: linkId(subjectUri, rel.predicate, id),
+      source: subjectUri,
+      target: id,
+      predicate: rel.predicate,
+      predicateLabel: '',
+    })
+  }
+
+  return { nodes, links }
+}
+
+function dossierSeedPredicates(
+  kind: EntityKind,
+  relationTypes: RelationType[],
+): RelationType[] {
+  const labelByKey = new Map(
+    relationTypes.map((r) => [`${r.direction}:${r.predicate}`, r.predicateLabel]),
+  )
+
+  const facets =
+    kind === 'person'
+      ? PERSON_FACETS.filter((f) => PERSON_SEED_FACET_IDS.includes(f.id))
+      : kind === 'org'
+        ? ORG_FACETS
+        : []
+
+  if (!facets.length) return []
+
+  const curated = flattenFacetPredicates(facets)
+  // Prefer predicates that actually exist on the entity (when we know them)
+  const known = new Set(relationTypes.map((r) => `${r.direction}:${r.predicate}`))
+  const preferred = curated.filter((p) => known.has(`${p.direction}:${p.predicate}`))
+  const fallback = curated.filter((p) => !known.has(`${p.direction}:${p.predicate}`))
+  // Try known first; still include a few unknown (incoming cast etc. may be missing from out-only list)
+  const ordered = [...preferred, ...fallback].slice(0, kind === 'person' ? 22 : 14)
+
+  return ordered.map((p) => ({
+    predicate: p.predicate,
+    predicateLabel:
+      p.label ||
+      labelByKey.get(`${p.direction}:${p.predicate}`) ||
+      localName(p.predicate),
+    count: p.limit ?? -1,
+    direction: p.direction,
+  }))
 }
 
 /**
- * Sparse seed graph: entity + top properties + a few values each.
+ * Seed graph: curated dossier for people/orgs; sparse otherwise.
  * Hop 0 = seed · Hop 1 = direct neighbors (hubs are chips, not an extra hop).
  */
 export async function fetchOntologyKnowledgeGraph(
@@ -420,13 +516,15 @@ export async function fetchOntologyKnowledgeGraph(
   let classes: string[]
   let dataProperties: DataProperty[]
   let relationTypes: RelationType[]
+  let entityKind: EntityKind = 'other'
 
   if (isWikidataEndpoint(endpoint)) {
-    ;[label, classes, dataProperties, relationTypes] = await Promise.all([
+    ;[label, classes, dataProperties, relationTypes, entityKind] = await Promise.all([
       wd.wdLabel(endpoint, uri),
       fetchResourceClasses(endpoint, uri),
       fetchDataProperties(endpoint, uri),
       fetchRelationTypes(endpoint, uri),
+      wd.wdEntityKind(endpoint, uri),
     ])
   } else {
     ;[label, classes, dataProperties, relationTypes] = await Promise.all([
@@ -435,6 +533,9 @@ export async function fetchOntologyKnowledgeGraph(
       fetchDataProperties(endpoint, uri),
       fetchRelationTypes(endpoint, uri),
     ])
+    const blob = classes.join(' ').toLowerCase()
+    if (/\b(human|person|people)\b/.test(blob)) entityKind = 'person'
+    else if (/\b(organization|company|business|corporation)\b/.test(blob)) entityKind = 'org'
   }
 
   const center: GraphNode = {
@@ -448,14 +549,40 @@ export async function fetchOntologyKnowledgeGraph(
     __pulse: 1,
   }
 
-  const objectHubs = buildRelationHubs(
+  const dossier = entityKind === 'person' || entityKind === 'org'
+  let objectHubs: { nodes: GraphNode[]; links: GraphLink[] }
+
+  if (dossier) {
+    const seedRels = dossierSeedPredicates(entityKind, relationTypes)
+    objectHubs = buildHubsFromPredicates(
+      uri,
+      seedRels.map((r) => ({
+        predicate: r.predicate,
+        direction: r.direction,
+        label: r.predicateLabel,
+      })),
+      1,
+    )
+    // If curated hubs empty (rare), fall back to sparse
+    if (!objectHubs.nodes.length) {
+      objectHubs = buildRelationHubs(uri, relationTypes, 'both', SEED_PRED_LIMIT, 1)
+    }
+  } else {
+    objectHubs = buildRelationHubs(
+      uri,
+      relationTypes,
+      direction,
+      SEED_PRED_LIMIT,
+      1,
+    )
+  }
+
+  const dataHubs = buildDataPropertyHubs(
     uri,
-    relationTypes,
-    direction,
-    SEED_PRED_LIMIT,
+    dataProperties,
+    dossier ? DOSSIER_DATA_LIMIT : SEED_DATA_LIMIT,
     1,
   )
-  const dataHubs = buildDataPropertyHubs(uri, dataProperties, SEED_DATA_LIMIT, 1)
 
   const hubNodes = [...objectHubs.nodes]
   const hubLinks = [...objectHubs.links]
@@ -469,7 +596,7 @@ export async function fetchOntologyKnowledgeGraph(
   const objectValues = await expandRelationHubValues(
     endpoint,
     objectHubs.nodes,
-    SEED_VALUES_PER_PRED,
+    dossier ? DOSSIER_VALUES_PER_PRED : SEED_VALUES_PER_PRED,
   )
 
   const nodeMap = new Map<string, GraphNode>([[uri, center]])
@@ -482,11 +609,31 @@ export async function fetchOntologyKnowledgeGraph(
     if (!linkMap.has(l.id)) linkMap.set(l.id, l)
   }
 
-  // Keep stamped hops: seed 0, hubs+values at entity hop 1 (no flatten overwrite)
+  // Drop hubs with no value children (avoids empty redundant chips)
+  for (const n of [...nodeMap.values()]) {
+    if (n.type !== 'relation') continue
+    const valueEdges = [...linkMap.values()].filter(
+      (l) => l.source === n.id && l.target !== uri,
+    )
+    if (valueEdges.length === 0) {
+      nodeMap.delete(n.id)
+      for (const [lid, l] of [...linkMap.entries()]) {
+        if (l.source === n.id || l.target === n.id) linkMap.delete(lid)
+      }
+    }
+  }
+
   const nodes = [...nodeMap.values()]
   const links = [...linkMap.values()]
   const hubCount = nodes.filter((n) => n.type === 'relation').length
   const valueCount = nodes.filter((n) => n.type !== 'relation' && n.id !== uri).length
+
+  const kindMsg =
+    entityKind === 'person'
+      ? 'Person dossier'
+      : entityKind === 'org'
+        ? 'Org leadership view'
+        : 'Started sparse'
 
   return {
     label: center.label,
@@ -496,6 +643,80 @@ export async function fetchOntologyKnowledgeGraph(
     nodes,
     links,
     appliedHopDepth: 1,
-    message: `Started sparse · ${hubCount} properties · ${valueCount} values · expand to grow`,
+    entityKind,
+    message: `${kindMsg} · ${hubCount} properties · ${valueCount} values · use facets to deepen`,
+  }
+}
+
+/** Expand one curated facet onto the graph (Ontodia-style recipe). */
+export async function expandKnowledgeFacet(
+  endpoint: string,
+  subjectUri: string,
+  facetId: FacetId,
+): Promise<{ nodes: GraphNode[]; links: GraphLink[]; message: string }> {
+  const facet =
+    PERSON_FACETS.find((f) => f.id === facetId) ||
+    ORG_FACETS.find((f) => f.id === facetId)
+  if (!facet) {
+    return { nodes: [], links: [], message: 'Unknown facet' }
+  }
+
+  const pieces = await Promise.all(
+    facet.predicates.map(async (p) => {
+      try {
+        const neighbors = await fetchConnectedNodes(
+          endpoint,
+          subjectUri,
+          p.predicate,
+          p.direction,
+          p.limit ?? 8,
+        )
+        if (!neighbors.length) return { nodes: [] as GraphNode[], links: [] as GraphLink[] }
+        const relation: RelationType = {
+          predicate: p.predicate,
+          predicateLabel: p.label || localName(p.predicate),
+          count: neighbors.length,
+          direction: p.direction,
+        }
+        // Prefer English property label from first hub build
+        return graphPiecesViaHub(subjectUri, relation, neighbors, 1)
+      } catch {
+        return { nodes: [] as GraphNode[], links: [] as GraphLink[] }
+      }
+    }),
+  )
+
+  const nodeMap = new Map<string, GraphNode>()
+  const linkMap = new Map<string, GraphLink>()
+  for (const part of pieces) {
+    for (const n of part.nodes) {
+      if (!nodeMap.has(n.id)) nodeMap.set(n.id, n)
+    }
+    for (const l of part.links) {
+      if (!linkMap.has(l.id)) linkMap.set(l.id, l)
+    }
+  }
+
+  // Drop empty hubs
+  for (const n of [...nodeMap.values()]) {
+    if (n.type !== 'relation') continue
+    const kids = [...linkMap.values()].filter((l) => l.source === n.id)
+    if (!kids.length) {
+      nodeMap.delete(n.id)
+      for (const [lid, l] of [...linkMap.entries()]) {
+        if (l.target === n.id || l.source === n.id) linkMap.delete(lid)
+      }
+    }
+  }
+
+  const nodes = [...nodeMap.values()]
+  const links = [...linkMap.values()]
+  const values = nodes.filter((n) => n.type !== 'relation').length
+  return {
+    nodes,
+    links,
+    message: values
+      ? `Facet “${facet.label}” · +${values} entities`
+      : `Facet “${facet.label}” · no linked data found`,
   }
 }
