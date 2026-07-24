@@ -58,7 +58,11 @@ export function ConnectionBar({
           </button>
         )}
         <span className="endpoint-hint" title={endpoint}>
-          {source === 'wikidata' ? 'query.wikidata.org' : 'dbpedia.org'}
+          {source === 'wikidata'
+            ? 'query.wikidata.org'
+            : source === 'yago'
+              ? 'yago-knowledge.org'
+              : 'dbpedia.org'}
         </span>
       </div>
     </header>

@@ -19,3 +19,5 @@ services:
         value: https://query.wikidata.org/sparql
       - key: SPARQL_UPSTREAM_DBPEDIA
         value: https://dbpedia.org/sparql
+      - key: SPARQL_UPSTREAM_YAGO
+        value: https://yago-knowledge.org/sparql/qlever

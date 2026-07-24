@@ -286,7 +286,9 @@ export function GraphSearch({
                   ? propertyDef?.valueKind === 'entity'
                     ? 'e.g. London, India, Action…'
                     : 'e.g. 1879, 2008-07-18…'
-                  : `Search ${source === 'wikidata' ? 'Wikidata' : 'DBpedia'}…`
+                  : `Search ${
+                      source === 'wikidata' ? 'Wikidata' : source === 'yago' ? 'YAGO' : 'DBpedia'
+                    }…`
               }
               autoComplete="off"
               spellCheck={false}

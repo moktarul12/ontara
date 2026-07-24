@@ -10,6 +10,7 @@ const UA = 'Ontara/1.0 (https://github.com/moktarul12/ontara; ontology-demo)'
 const UPSTREAMS = {
   dbpedia: process.env.SPARQL_UPSTREAM_DBPEDIA || 'https://dbpedia.org/sparql',
   wikidata: process.env.SPARQL_UPSTREAM_WIKIDATA || 'https://query.wikidata.org/sparql',
+  yago: process.env.SPARQL_UPSTREAM_YAGO || 'https://yago-knowledge.org/sparql/qlever',
 }
 
 const app = express()
@@ -64,6 +65,7 @@ async function proxySparql(upstreamUrl, req, res) {
 
 app.all('/sparql/wikidata', (req, res) => proxySparql(UPSTREAMS.wikidata, req, res))
 app.all('/sparql/dbpedia', (req, res) => proxySparql(UPSTREAMS.dbpedia, req, res))
+app.all('/sparql/yago', (req, res) => proxySparql(UPSTREAMS.yago, req, res))
 app.all('/sparql', (req, res) => proxySparql(UPSTREAMS.dbpedia, req, res))
 
 /** Fast entity search — Wikidata MediaWiki API */

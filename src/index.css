@@ -100,9 +100,9 @@ button {
 }
 
 .source-btn {
-  padding: 0.4rem 0.85rem;
+  padding: 0.4rem 0.7rem;
   border-radius: 9px;
-  font-size: 0.84rem;
+  font-size: 0.82rem;
   font-weight: 560;
   color: var(--ink-soft);
 }

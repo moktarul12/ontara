@@ -23,6 +23,15 @@ export default defineConfig({
         rewrite: (p) => p.replace(/^\/sparql\/dbpedia/, '/sparql'),
         secure: true,
       },
+      '/sparql/yago': {
+        target: 'https://yago-knowledge.org',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/sparql\/yago/, '/sparql/qlever'),
+        secure: true,
+        headers: {
+          'User-Agent': 'Ontara/1.0 (https://github.com/moktarul12/ontara)',
+        },
+      },
       '/api/wikidata': {
         target: 'https://www.wikidata.org',
         changeOrigin: true,

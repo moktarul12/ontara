@@ -33,8 +33,17 @@ export function isDbpediaEndpoint(endpoint: string): boolean {
   )
 }
 
+export function isYagoEndpoint(endpoint: string): boolean {
+  return (
+    endpoint.includes('yago-knowledge.org') ||
+    endpoint.includes('/sparql/yago') ||
+    endpoint === '/sparql/yago'
+  )
+}
+
 export function resolveEndpoint(endpoint: string): string {
   if (isWikidataEndpoint(endpoint)) return '/sparql/wikidata'
+  if (isYagoEndpoint(endpoint)) return '/sparql/yago'
   if (isDbpediaEndpoint(endpoint) || endpoint.includes('dbpedia.org/sparql')) {
     return '/sparql/dbpedia'
   }

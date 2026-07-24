@@ -64,7 +64,7 @@ export interface GraphData {
 
 export type StartMode = 'classmap' | 'resource'
 
-export type SparqlSourceId = 'wikidata' | 'dbpedia'
+export type SparqlSourceId = 'wikidata' | 'dbpedia' | 'yago'
 
 export interface OntologyConfig {
   endpoint: string
@@ -76,6 +76,8 @@ export interface OntologyConfig {
 
 export const WIKIDATA_ENDPOINT = 'https://query.wikidata.org/sparql'
 export const DBPEDIA_ENDPOINT = 'https://dbpedia.org/sparql'
+/** YAGO 4 QLever SPARQL API (yago-knowledge.org). */
+export const YAGO_ENDPOINT = 'https://yago-knowledge.org/sparql/qlever'
 
 export const SPARQL_SOURCES: {
   id: SparqlSourceId
@@ -84,6 +86,7 @@ export const SPARQL_SOURCES: {
 }[] = [
   { id: 'wikidata', label: 'Wikidata', endpoint: WIKIDATA_ENDPOINT },
   { id: 'dbpedia', label: 'DBpedia', endpoint: DBPEDIA_ENDPOINT },
+  { id: 'yago', label: 'YAGO', endpoint: YAGO_ENDPOINT },
 ]
 
 /** OWL Thing — real root of the class hierarchy (DBpedia browse). */
@@ -120,6 +123,21 @@ export const WIKIDATA_CORE_CLASSES: {
   { uri: 'http://www.wikidata.org/entity/Q1656682', label: 'Event', parent: WD_ENTITY },
 ]
 
+/** YAGO 4 top classes (schema.org taxonomy). */
+export const YAGO_CORE_CLASSES: {
+  uri: string
+  label: string
+  parent: string
+}[] = [
+  { uri: 'http://schema.org/Thing', label: 'Thing', parent: OWL_THING },
+  { uri: 'http://schema.org/Person', label: 'Person', parent: 'http://schema.org/Thing' },
+  { uri: 'http://schema.org/Place', label: 'Place', parent: 'http://schema.org/Thing' },
+  { uri: 'http://schema.org/Organization', label: 'Organization', parent: 'http://schema.org/Thing' },
+  { uri: 'http://schema.org/CreativeWork', label: 'Creative work', parent: 'http://schema.org/Thing' },
+  { uri: 'http://schema.org/Event', label: 'Event', parent: 'http://schema.org/Thing' },
+  { uri: 'http://schema.org/Product', label: 'Product', parent: 'http://schema.org/Thing' },
+]
+
 export const DEFAULT_CONFIG: OntologyConfig = {
   endpoint: WIKIDATA_ENDPOINT,
   seedUri: '',
@@ -147,12 +165,24 @@ export const SEARCH_TYPE_SCOPES_WIKIDATA = [
   { id: 'organisation', label: 'Organisation', classUri: 'http://www.wikidata.org/entity/Q43229' },
 ] as const
 
+export const SEARCH_TYPE_SCOPES_YAGO = [
+  { id: 'all', label: 'All', classUri: undefined as string | undefined },
+  { id: 'person', label: 'Person', classUri: 'http://schema.org/Person' },
+  { id: 'work', label: 'Creative work', classUri: 'http://schema.org/CreativeWork' },
+  { id: 'place', label: 'Place', classUri: 'http://schema.org/Place' },
+  { id: 'organisation', label: 'Organization', classUri: 'http://schema.org/Organization' },
+  { id: 'event', label: 'Event', classUri: 'http://schema.org/Event' },
+] as const
+
 export type SearchTypeScopeId =
   | (typeof SEARCH_TYPE_SCOPES_WIKIDATA)[number]['id']
   | (typeof SEARCH_TYPE_SCOPES_DBPEDIA)[number]['id']
+  | (typeof SEARCH_TYPE_SCOPES_YAGO)[number]['id']
 
 export function searchScopesForSource(source: SparqlSourceId) {
-  return source === 'wikidata' ? SEARCH_TYPE_SCOPES_WIKIDATA : SEARCH_TYPE_SCOPES_DBPEDIA
+  if (source === 'wikidata') return SEARCH_TYPE_SCOPES_WIKIDATA
+  if (source === 'yago') return SEARCH_TYPE_SCOPES_YAGO
+  return SEARCH_TYPE_SCOPES_DBPEDIA
 }
 
 export type SearchMode = 'entity' | 'dataprop'
@@ -166,6 +196,7 @@ export interface DataPropertySearchDef {
   valueKind: DataPropertyValueKind
   wikidataUri: string
   dbpediaUri: string
+  yagoUri: string
 }
 
 export const DATA_PROPERTY_SEARCH_DEFS: DataPropertySearchDef[] = [
@@ -175,6 +206,7 @@ export const DATA_PROPERTY_SEARCH_DEFS: DataPropertySearchDef[] = [
     valueKind: 'literal',
     wikidataUri: 'http://schema.org/description',
     dbpediaUri: 'http://dbpedia.org/ontology/abstract',
+    yagoUri: 'http://www.w3.org/2000/01/rdf-schema#comment',
   },
   {
     id: 'birthDate',
@@ -182,6 +214,7 @@ export const DATA_PROPERTY_SEARCH_DEFS: DataPropertySearchDef[] = [
     valueKind: 'literal',
     wikidataUri: 'http://www.wikidata.org/prop/direct/P569',
     dbpediaUri: 'http://dbpedia.org/ontology/birthDate',
+    yagoUri: 'http://schema.org/birthDate',
   },
   {
     id: 'inception',
@@ -189,6 +222,7 @@ export const DATA_PROPERTY_SEARCH_DEFS: DataPropertySearchDef[] = [
     valueKind: 'literal',
     wikidataUri: 'http://www.wikidata.org/prop/direct/P571',
     dbpediaUri: 'http://dbpedia.org/ontology/foundingDate',
+    yagoUri: 'http://schema.org/foundingDate',
   },
   {
     id: 'country',
@@ -196,6 +230,7 @@ export const DATA_PROPERTY_SEARCH_DEFS: DataPropertySearchDef[] = [
     valueKind: 'entity',
     wikidataUri: 'http://www.wikidata.org/prop/direct/P17',
     dbpediaUri: 'http://dbpedia.org/ontology/country',
+    yagoUri: 'http://schema.org/country',
   },
   {
     id: 'filmingLocation',
@@ -203,6 +238,7 @@ export const DATA_PROPERTY_SEARCH_DEFS: DataPropertySearchDef[] = [
     valueKind: 'entity',
     wikidataUri: 'http://www.wikidata.org/prop/direct/P915',
     dbpediaUri: 'http://dbpedia.org/ontology/filmingLocation',
+    yagoUri: 'http://schema.org/locationCreated',
   },
   {
     id: 'genre',
@@ -210,6 +246,7 @@ export const DATA_PROPERTY_SEARCH_DEFS: DataPropertySearchDef[] = [
     valueKind: 'entity',
     wikidataUri: 'http://www.wikidata.org/prop/direct/P136',
     dbpediaUri: 'http://dbpedia.org/ontology/genre',
+    yagoUri: 'http://schema.org/genre',
   },
   {
     id: 'award',
@@ -217,6 +254,7 @@ export const DATA_PROPERTY_SEARCH_DEFS: DataPropertySearchDef[] = [
     valueKind: 'entity',
     wikidataUri: 'http://www.wikidata.org/prop/direct/P166',
     dbpediaUri: 'http://dbpedia.org/ontology/award',
+    yagoUri: 'http://schema.org/award',
   },
   {
     id: 'publicationDate',
@@ -224,6 +262,7 @@ export const DATA_PROPERTY_SEARCH_DEFS: DataPropertySearchDef[] = [
     valueKind: 'literal',
     wikidataUri: 'http://www.wikidata.org/prop/direct/P577',
     dbpediaUri: 'http://dbpedia.org/ontology/releaseDate',
+    yagoUri: 'http://schema.org/datePublished',
   },
 ]
 
@@ -231,7 +270,9 @@ export function dataPropertyUriForSource(
   def: DataPropertySearchDef,
   source: SparqlSourceId,
 ): string {
-  return source === 'wikidata' ? def.wikidataUri : def.dbpediaUri
+  if (source === 'wikidata') return def.wikidataUri
+  if (source === 'yago') return def.yagoUri
+  return def.dbpediaUri
 }
 
 export const SEARCH_EXAMPLES_WIKIDATA = [
@@ -248,6 +289,13 @@ export const SEARCH_EXAMPLES_DBPEDIA = [
   { label: 'Marie Curie', uri: 'http://dbpedia.org/resource/Marie_Curie' },
 ] as const
 
+export const SEARCH_EXAMPLES_YAGO = [
+  { label: 'Albert Einstein', uri: 'http://yago-knowledge.org/resource/Albert_Einstein' },
+  { label: 'Marie Curie', uri: 'http://yago-knowledge.org/resource/Marie_Curie' },
+  { label: 'Paris', uri: 'http://yago-knowledge.org/resource/Paris' },
+  { label: 'The Dark Knight', uri: 'http://yago-knowledge.org/resource/The_Dark_Knight_(film)' },
+] as const
+
 export const DATA_PROP_SEARCH_EXAMPLES = [
   { propertyId: 'filmingLocation', value: 'London', classId: 'work' as const },
   { propertyId: 'birthDate', value: '1879', classId: 'person' as const },
@@ -256,7 +304,15 @@ export const DATA_PROP_SEARCH_EXAMPLES = [
 ] as const
 
 export function searchExamplesForSource(source: SparqlSourceId) {
-  return source === 'wikidata' ? SEARCH_EXAMPLES_WIKIDATA : SEARCH_EXAMPLES_DBPEDIA
+  if (source === 'wikidata') return SEARCH_EXAMPLES_WIKIDATA
+  if (source === 'yago') return SEARCH_EXAMPLES_YAGO
+  return SEARCH_EXAMPLES_DBPEDIA
+}
+
+export function sourceDisplayName(source: SparqlSourceId): string {
+  if (source === 'wikidata') return 'Wikidata'
+  if (source === 'yago') return 'YAGO'
+  return 'DBpedia'
 }
 
 /** @deprecated use searchScopesForSource */

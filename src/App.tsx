@@ -5,7 +5,7 @@ import { GraphFooter } from './components/GraphFooter'
 import { GraphSearch } from './components/GraphSearch'
 import { KnowledgeGraph, type GraphLayoutMode } from './components/KnowledgeGraph'
 import { useOntologyStore } from './hooks/useOntologyStore'
-import { SPARQL_SOURCES, type SparqlSourceId } from './types/ontology'
+import { SPARQL_SOURCES, sourceDisplayName, type SparqlSourceId } from './types/ontology'
 
 export default function App() {
   const store = useOntologyStore()
@@ -91,7 +91,7 @@ export default function App() {
               <div className="map-guide">
                 <p>
                   Browse the{' '}
-                  <strong>{store.config.source === 'wikidata' ? 'Wikidata' : 'DBpedia'}</strong>{' '}
+                  <strong>{sourceDisplayName(store.config.source)}</strong>{' '}
                   class map, or search a person / place above.
                 </p>
               </div>
@@ -129,7 +129,7 @@ export default function App() {
           <GraphFooter
             nodeCount={store.graph.nodes.length}
             linkCount={store.graph.links.length}
-            sourceLabel={store.config.source === 'wikidata' ? 'Wikidata' : 'DBpedia'}
+            sourceLabel={sourceDisplayName(store.config.source)}
             isClassMap={isClassMap}
             loading={store.loading}
             loadingMessage={store.loadingMessage}

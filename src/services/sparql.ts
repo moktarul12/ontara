@@ -14,16 +14,20 @@ import {
 } from '../types/ontology'
 import {
   isWikidataEndpoint,
+  isYagoEndpoint,
   localName,
   predicateLabel,
   runSparql,
   type SparqlBinding,
 } from './sparql-core'
 import * as wd from './wikidata'
+import * as yago from './yago'
 import { stampTreeHopDepths } from '../utils/treeLayout'
 
 export {
+  isDbpediaEndpoint,
   isWikidataEndpoint,
+  isYagoEndpoint,
   localName,
   predicateLabel,
   runSparql,
@@ -53,6 +57,7 @@ export function isOntologyClassUri(uri: string): boolean {
     uri === OWL_THING ||
     uri === WD_ENTITY ||
     uri.startsWith('http://dbpedia.org/ontology/') ||
+    uri.startsWith('http://schema.org/') ||
     uri.endsWith('#Thing') ||
     uri.includes('owl#Class')
   ) {
@@ -158,6 +163,25 @@ async function fetchResourceRelationTypes(
   endpoint: string,
   uri: string,
 ): Promise<RelationType[]> {
+  const yagoNoise = isYagoEndpoint(endpoint)
+    ? `
+      FILTER(?p != <http://schema.org/url>)
+      FILTER(?p != <http://schema.org/image>)
+      FILTER(?p != <http://schema.org/sameAs>)
+      FILTER(?p != <http://schema.org/mainEntityOfPage>)
+      FILTER(?p != <http://schema.org/logo>)
+      FILTER(?p != <http://schema.org/alternateName>)
+      FILTER(?p != <http://yago-knowledge.org/resource/siteLinks>)
+      FILTER(!STRSTARTS(STR(?p), "http://www.w3.org/2004/02/skos/core#"))
+    `
+    : `
+      FILTER(?p != <http://dbpedia.org/ontology/abstract>)
+      FILTER(?p != <http://dbpedia.org/ontology/wikiPageWikiLink>)
+      FILTER(?p != <http://dbpedia.org/ontology/wikiPageRedirects>)
+      FILTER(?p != <http://dbpedia.org/ontology/wikiPageExternalLink>)
+      FILTER(?p != <http://purl.org/dc/terms/subject>)
+    `
+
   // Sample distinct predicates — cheaper than COUNT GROUP BY on DBpedia
   const outQuery = `
     SELECT DISTINCT ?p WHERE {
@@ -167,12 +191,8 @@ async function fetchResourceRelationTypes(
       FILTER(?p != <http://www.w3.org/2000/01/rdf-schema#label>)
       FILTER(?p != <http://www.w3.org/2000/01/rdf-schema#comment>)
       FILTER(?p != <http://xmlns.com/foaf/0.1/name>)
-      FILTER(?p != <http://dbpedia.org/ontology/abstract>)
-      FILTER(?p != <http://dbpedia.org/ontology/wikiPageWikiLink>)
-      FILTER(?p != <http://dbpedia.org/ontology/wikiPageRedirects>)
-      FILTER(?p != <http://dbpedia.org/ontology/wikiPageExternalLink>)
       FILTER(?p != <http://www.w3.org/2002/07/owl#sameAs>)
-      FILTER(?p != <http://purl.org/dc/terms/subject>)
+      ${yagoNoise}
     } LIMIT 30
   `
 
@@ -183,6 +203,8 @@ async function fetchResourceRelationTypes(
       FILTER(?p != <http://dbpedia.org/ontology/wikiPageWikiLink>)
       FILTER(?p != <http://dbpedia.org/ontology/wikiPageRedirects>)
       FILTER(?p != <http://www.w3.org/2002/07/owl#sameAs>)
+      FILTER(?p != <http://schema.org/url>)
+      FILTER(?p != <http://schema.org/image>)
     } LIMIT 15
   `
 
@@ -191,7 +213,7 @@ async function fetchResourceRelationTypes(
     runSparql(endpoint, inQuery, 10000).catch(() => [] as SparqlBinding[]),
   ])
 
-  return [
+  const mapped = [
     ...outRows.map((r) => ({
       predicate: r.p.value,
       predicateLabel: predicateLabel(r.p.value),
@@ -205,6 +227,8 @@ async function fetchResourceRelationTypes(
       direction: 'in' as const,
     })),
   ]
+
+  return mapped.filter((r) => !yago.isYagoSkipPredicate(r.predicate))
 }
 
 export async function fetchConnectedNodes(
@@ -346,6 +370,9 @@ export async function searchResources(
 ): Promise<ConnectedNode[]> {
   if (isWikidataEndpoint(endpoint)) {
     return wd.wdSearch(endpoint, term, classFilter, limit)
+  }
+  if (isYagoEndpoint(endpoint)) {
+    return yago.yagoSearch(endpoint, term, classFilter, limit)
   }
   const q = escapeSparql(term.trim())
   if (!q) return []
@@ -911,6 +938,9 @@ export async function fetchOntologyClassMap(endpoint: string): Promise<{
 }> {
   if (isWikidataEndpoint(endpoint)) {
     return wd.wdClassMap(endpoint)
+  }
+  if (isYagoEndpoint(endpoint)) {
+    return yago.yagoClassMap(endpoint)
   }
   const nodes = new Map<string, GraphNode>()
   const links: GraphLink[] = []
