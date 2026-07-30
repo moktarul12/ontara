@@ -121,7 +121,7 @@ export async function searchWikidataApi(
   url.searchParams.set('type', 'item')
   url.searchParams.set('limit', String(Math.min(limit, 20)))
   url.searchParams.set('format', 'json')
-  url.searchParams.set('origin', '*')
+  // Same-origin proxy → www.wikidata.org/w/api.php (see vite.proxy.ts / api/wikidata.js)
 
   const ctrl = new AbortController()
   const timer = window.setTimeout(() => ctrl.abort(), 8000)

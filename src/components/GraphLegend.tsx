@@ -10,7 +10,7 @@ export function GraphLegend() {
         <li>
           <span
             className="legend-swatch"
-            style={{ background: '#14282c', borderColor: '#e8c56a' }}
+            style={{ background: '#1a1520', borderColor: '#f0a43a' }}
           />
           <span>Seed entity</span>
         </li>

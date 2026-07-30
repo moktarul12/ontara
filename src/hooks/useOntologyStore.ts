@@ -25,6 +25,8 @@ import * as wd from '../services/wikidata'
 import {
   expandEntityHopLayer,
   expandKnowledgeFacet,
+  fetchFamilyTree,
+  fetchImdbOntology,
   fetchOntologyKnowledgeGraph,
   graphPiecesViaHub,
   isRelationHubId,
@@ -66,6 +68,12 @@ interface ExploreState {
   entityKind: EntityKind
   /** Facets already expanded this session (for chip active state). */
   expandedFacets: FacetId[]
+  /** dossier = knowledge hubs; family = pedigree; imdb = entertainment title graph */
+  viewMode: 'dossier' | 'family' | 'imdb'
+  /** Last requested family-tree depth (1–5). */
+  familyDepth: number
+  /** IMDb.com URL when P345 is known (title/name). */
+  imdbUrl: string | null
 }
 
 type Action =
@@ -107,6 +115,9 @@ type Action =
   | { type: 'SET_ENTITY_KIND'; kind: EntityKind }
   | { type: 'MARK_FACET'; facetId: FacetId }
   | { type: 'CLEAR_FACETS' }
+  | { type: 'SET_VIEW_MODE'; mode: 'dossier' | 'family' | 'imdb' }
+  | { type: 'SET_FAMILY_DEPTH'; depth: number }
+  | { type: 'SET_IMDB_URL'; url: string | null }
 
 const initialState: ExploreState = {
   config: { ...DEFAULT_CONFIG },
@@ -132,6 +143,9 @@ const initialState: ExploreState = {
   appliedHopDepth: 0,
   entityKind: 'other',
   expandedFacets: [],
+  viewMode: 'dossier',
+  familyDepth: 3,
+  imdbUrl: null,
 }
 
 function reducer(state: ExploreState, action: Action): ExploreState {
@@ -194,6 +208,8 @@ function reducer(state: ExploreState, action: Action): ExploreState {
         appliedHopDepth: 0,
         entityKind: 'other',
         expandedFacets: [],
+        viewMode: 'dossier',
+        imdbUrl: null,
       }
     case 'SELECT_NODE':
       return {
@@ -332,6 +348,15 @@ function reducer(state: ExploreState, action: Action): ExploreState {
       }
     case 'CLEAR_FACETS':
       return { ...state, expandedFacets: [], entityKind: 'other' }
+    case 'SET_VIEW_MODE':
+      return { ...state, viewMode: action.mode }
+    case 'SET_FAMILY_DEPTH':
+      return {
+        ...state,
+        familyDepth: Math.max(1, Math.min(5, action.depth)),
+      }
+    case 'SET_IMDB_URL':
+      return { ...state, imdbUrl: action.url }
     default:
       return state
   }
@@ -399,6 +424,16 @@ export function useOntologyStore() {
           dataProperties: kg.dataProperties,
         })
         dispatch({ type: 'SET_PANEL', mode: 'relations' })
+        dispatch({ type: 'SET_VIEW_MODE', mode: 'dossier' })
+        if (kg.entityKind === 'work' && isWikidataEndpoint(state.config.endpoint)) {
+          void wd.wdImdbUrl(state.config.endpoint, uri).then((url) => {
+            if (gen === selectGen.current) {
+              dispatch({ type: 'SET_IMDB_URL', url })
+            }
+          })
+        } else {
+          dispatch({ type: 'SET_IMDB_URL', url: null })
+        }
       } catch (err) {
         if (gen !== selectGen.current) return
         dispatch({
@@ -413,6 +448,135 @@ export function useOntologyStore() {
     },
     [state.config.endpoint],
   )
+
+  const openFamilyTree = useCallback(
+    async (depth?: number) => {
+      const seed = state.pathRootId || state.config.seedUri
+      if (!seed) return
+      if (state.entityKind !== 'person') {
+        dispatch({
+          type: 'SET_ERROR',
+          error: 'Family tree is available for people only',
+        })
+        return
+      }
+      const d = depth ?? state.familyDepth
+      const gen = ++selectGen.current
+      dispatch({ type: 'SET_FAMILY_DEPTH', depth: d })
+      dispatch({
+        type: 'SET_LOADING',
+        loading: true,
+        message: `Building family tree (depth ${d})…`,
+      })
+      try {
+        const tree = await fetchFamilyTree(state.config.endpoint, seed, d)
+        if (gen !== selectGen.current) return
+        dispatch({
+          type: 'RESET_GRAPH',
+          graph: { nodes: tree.nodes, links: tree.links },
+          seedId: seed,
+          panelMode: 'details',
+          message: tree.message,
+          bumpEpoch: true,
+        })
+        dispatch({ type: 'SET_VIEW_MODE', mode: 'family' })
+        dispatch({ type: 'SET_APPLIED_HOPS', depth: d })
+        dispatch({ type: 'SET_ENTITY_KIND', kind: 'person' })
+        dispatch({ type: 'SET_PANEL', mode: 'details' })
+      } catch (err) {
+        if (gen !== selectGen.current) return
+        dispatch({
+          type: 'SET_ERROR',
+          error: err instanceof Error ? err.message : 'Family tree failed',
+        })
+      } finally {
+        if (gen === selectGen.current) {
+          dispatch({ type: 'SET_LOADING', loading: false })
+        }
+      }
+    },
+    [
+      state.pathRootId,
+      state.config.seedUri,
+      state.config.endpoint,
+      state.entityKind,
+      state.familyDepth,
+    ],
+  )
+
+  const exitFamilyTree = useCallback(async () => {
+    const seed = state.pathRootId || state.config.seedUri
+    if (!seed) return
+    dispatch({ type: 'SET_VIEW_MODE', mode: 'dossier' })
+    await openKnowledgeGraph(seed)
+  }, [state.pathRootId, state.config.seedUri, openKnowledgeGraph])
+
+  const setFamilyDepth = useCallback((depth: number) => {
+    dispatch({ type: 'SET_FAMILY_DEPTH', depth })
+  }, [])
+
+  const openImdbView = useCallback(async () => {
+    const seed = state.pathRootId || state.config.seedUri
+    if (!seed) return
+    if (state.entityKind !== 'work') {
+      dispatch({
+        type: 'SET_ERROR',
+        error: 'IMDb ontology is available for films, songs, and other titles',
+      })
+      return
+    }
+    const gen = ++selectGen.current
+    dispatch({
+      type: 'SET_LOADING',
+      loading: true,
+      message: 'Building IMDb-style ontology…',
+    })
+    try {
+      const graph = await fetchImdbOntology(state.config.endpoint, seed)
+      if (gen !== selectGen.current) return
+      dispatch({
+        type: 'RESET_GRAPH',
+        graph: { nodes: graph.nodes, links: graph.links },
+        seedId: seed,
+        panelMode: 'details',
+        message: graph.message,
+        bumpEpoch: true,
+      })
+      dispatch({ type: 'SET_VIEW_MODE', mode: 'imdb' })
+      dispatch({ type: 'SET_ENTITY_KIND', kind: 'work' })
+      dispatch({ type: 'SET_IMDB_URL', url: graph.imdbUrl })
+      dispatch({ type: 'SET_DATA_PROPERTIES', props: graph.dataProperties })
+      dispatch({
+        type: 'UPDATE_NODE_META',
+        id: seed,
+        classes: graph.classes,
+        dataProperties: graph.dataProperties,
+      })
+      dispatch({ type: 'SET_PANEL', mode: 'details' })
+    } catch (err) {
+      if (gen !== selectGen.current) return
+      dispatch({
+        type: 'SET_ERROR',
+        error: err instanceof Error ? err.message : 'IMDb ontology failed',
+      })
+    } finally {
+      if (gen === selectGen.current) {
+        dispatch({ type: 'SET_LOADING', loading: false })
+      }
+    }
+  }, [
+    state.pathRootId,
+    state.config.seedUri,
+    state.config.endpoint,
+    state.entityKind,
+  ])
+
+  const exitImdbView = useCallback(async () => {
+    const seed = state.pathRootId || state.config.seedUri
+    if (!seed) return
+    dispatch({ type: 'SET_VIEW_MODE', mode: 'dossier' })
+    await openKnowledgeGraph(seed)
+  }, [state.pathRootId, state.config.seedUri, openKnowledgeGraph])
 
   const clearGraph = useCallback(() => {
     dispatch({ type: 'CLEAR_GRAPH' })
@@ -1252,6 +1416,11 @@ export function useOntologyStore() {
     ...state,
     selectedNode,
     openKnowledgeGraph,
+    openFamilyTree,
+    exitFamilyTree,
+    setFamilyDepth,
+    openImdbView,
+    exitImdbView,
     clearGraph,
     bootstrap,
     selectNode,

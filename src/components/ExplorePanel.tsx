@@ -78,8 +78,8 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
         <div className="inspector-empty">
           <p>
             {graph.nodes.length
-              ? 'Click a node on the canvas to see its relations and connected nodes. Images and websites stay in Data — not on the graph.'
-              : 'Search a person or company above to open a curated knowledge dossier.'}
+              ? 'Select a node to list relations, add neighbors, or read literal data.'
+              : 'Open an entity from search to inspect it here.'}
           </p>
         </div>
       </aside>
@@ -363,9 +363,8 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
           ) : (
             <>
               <p className="panel-lead">
-                Click an award or value → <strong>Show all attached</strong> or{' '}
-                <strong>Depth 1–3</strong>. Or <strong>List</strong> a relation → add one / selected
-                / all. Double-click a node on the canvas to expand it fully.
+                List a relation to pick neighbors, or grow hops from this node. Double-click the
+                canvas to expand fully.
               </p>
               {canExpandNode && (
                 <button

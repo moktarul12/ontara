@@ -21,6 +21,8 @@ import {
   ORG_FACETS,
   PERSON_FACETS,
   PERSON_SEED_FACET_IDS,
+  WORK_FACETS,
+  WORK_SEED_FACET_IDS,
   flattenFacetPredicates,
   type FacetId,
 } from '../types/facets'
@@ -57,16 +59,16 @@ export function clusterColorIndex(key: string): number {
   return h % CLUSTER_PALETTE.length
 }
 
-/** Property-cluster colours — hub solid; values share the border. */
+/** Property-cluster colours — hub solid; values share the border (dark canvas). */
 export const CLUSTER_PALETTE = [
-  { fill: '#1f6b52', border: '#3ddc97', text: '#ffffff', valueFill: '#f4fbf8', valueText: '#0d3d32' },
-  { fill: '#8a3d5c', border: '#e07a9e', text: '#ffffff', valueFill: '#fdf6f9', valueText: '#4a1f35' },
-  { fill: '#a65c20', border: '#e8a05a', text: '#ffffff', valueFill: '#fff8f0', valueText: '#5c3010' },
-  { fill: '#2f4f7a', border: '#7eb0d4', text: '#ffffff', valueFill: '#f4f8fc', valueText: '#1e2558' },
-  { fill: '#5c3d7a', border: '#b48ad4', text: '#ffffff', valueFill: '#f8f4fc', valueText: '#3a1f52' },
-  { fill: '#1f6a6e', border: '#4ec4c8', text: '#ffffff', valueFill: '#f2fafb', valueText: '#0d3d40' },
-  { fill: '#7a3d3d', border: '#d48a8a', text: '#ffffff', valueFill: '#fdf6f6', valueText: '#4a1f1f' },
-  { fill: '#4a5c28', border: '#9ab85a', text: '#ffffff', valueFill: '#f6faf0', valueText: '#2a3d14' },
+  { fill: '#0e2a24', border: '#5ec8c0', text: '#e8fff8', valueFill: '#12201c', valueText: '#d8f4f0' },
+  { fill: '#2a1420', border: '#e07898', text: '#ffe8f0', valueFill: '#1c1418', valueText: '#f8e0e8' },
+  { fill: '#2a1c10', border: '#f0a43a', text: '#fff4e0', valueFill: '#1c1810', valueText: '#f8e8c8' },
+  { fill: '#121c28', border: '#6ea8e8', text: '#e4eefc', valueFill: '#141c28', valueText: '#dce8f8' },
+  { fill: '#1c1428', border: '#b89ae8', text: '#f0e8fc', valueFill: '#16141c', valueText: '#ece4f8' },
+  { fill: '#0e2428', border: '#4ec4c8', text: '#e0f8f8', valueFill: '#101c20', valueText: '#d0f0f0' },
+  { fill: '#241414', border: '#e87868', text: '#fce8e4', valueFill: '#1a1214', valueText: '#f8d8d0' },
+  { fill: '#182014', border: '#9ab85a', text: '#eef8d8', valueFill: '#141a10', valueText: '#e0ecc8' },
 ] as const
 
 function pickRelations(
@@ -409,7 +411,7 @@ export const SEED_DATA_LIMIT = 3
 export const DOSSIER_VALUES_PER_PRED = 5
 export const DOSSIER_DATA_LIMIT = 2
 
-export type EntityKind = 'person' | 'org' | 'other'
+export type EntityKind = 'person' | 'org' | 'work' | 'other'
 
 export interface OntologyKnowledgeGraph {
   label: string
@@ -480,7 +482,9 @@ function dossierSeedPredicates(
       ? PERSON_FACETS.filter((f) => PERSON_SEED_FACET_IDS.includes(f.id))
       : kind === 'org'
         ? ORG_FACETS
-        : []
+        : kind === 'work'
+          ? WORK_FACETS.filter((f) => WORK_SEED_FACET_IDS.includes(f.id))
+          : []
 
   if (!facets.length) return []
 
@@ -490,7 +494,8 @@ function dossierSeedPredicates(
   const preferred = curated.filter((p) => known.has(`${p.direction}:${p.predicate}`))
   const fallback = curated.filter((p) => !known.has(`${p.direction}:${p.predicate}`))
   // Try known first; still include a few unknown (incoming cast etc. may be missing from out-only list)
-  const ordered = [...preferred, ...fallback].slice(0, kind === 'person' ? 22 : 14)
+  const limit = kind === 'person' ? 22 : kind === 'work' ? 24 : 14
+  const ordered = [...preferred, ...fallback].slice(0, limit)
 
   return ordered.map((p) => ({
     predicate: p.predicate,
@@ -540,6 +545,13 @@ export async function fetchOntologyKnowledgeGraph(
     const blob = classes.join(' ').toLowerCase()
     if (/\b(human|person|people)\b/.test(blob)) entityKind = 'person'
     else if (/\b(organization|company|business|corporation)\b/.test(blob)) entityKind = 'org'
+    else if (
+      /\b(film|movie|television|song|album|musical|creative.?work|video.?game|book)\b/.test(
+        blob,
+      )
+    ) {
+      entityKind = 'work'
+    }
   }
 
   const center: GraphNode = {
@@ -554,7 +566,8 @@ export async function fetchOntologyKnowledgeGraph(
     __imageUrl: imageUrl || undefined,
   }
 
-  const dossier = entityKind === 'person' || entityKind === 'org'
+  const dossier =
+    entityKind === 'person' || entityKind === 'org' || entityKind === 'work'
   let objectHubs: { nodes: GraphNode[]; links: GraphLink[] }
 
   if (dossier) {
@@ -638,7 +651,9 @@ export async function fetchOntologyKnowledgeGraph(
       ? 'Person dossier'
       : entityKind === 'org'
         ? 'Org leadership view'
-        : 'Started sparse'
+        : entityKind === 'work'
+          ? 'IMDb-style title dossier'
+          : 'Started sparse'
 
   return {
     label: center.label,
@@ -725,3 +740,121 @@ export async function expandKnowledgeFacet(
       : `Facet “${facet.label}” · no linked data found`,
   }
 }
+
+export interface FamilyTreeGraph {
+  nodes: GraphNode[]
+  links: GraphLink[]
+  message: string
+  seedUri: string
+}
+
+/** Multi-generation kinship graph (person–person edges, no hubs). Wikidata primary. */
+export async function fetchFamilyTree(
+  endpoint: string,
+  seedUri: string,
+  depth: number,
+): Promise<FamilyTreeGraph> {
+  if (!isWikidataEndpoint(endpoint)) {
+    throw new Error('Family tree currently requires Wikidata')
+  }
+  const tree = await wd.wdFamilyTree(endpoint, seedUri, depth)
+  return { ...tree, seedUri }
+}
+
+export interface ImdbOntologyGraph {
+  nodes: GraphNode[]
+  links: GraphLink[]
+  message: string
+  seedUri: string
+  imdbUrl: string | null
+  label: string
+  dataProperties: DataProperty[]
+  classes: string[]
+}
+
+/**
+ * Full IMDb-style entertainment ontology for a film / song / album / show.
+ * Loads all work facets (cast, crew, music, genre, production, awards).
+ */
+export async function fetchImdbOntology(
+  endpoint: string,
+  seedUri: string,
+): Promise<ImdbOntologyGraph> {
+  if (!isWikidataEndpoint(endpoint)) {
+    throw new Error('IMDb ontology currently requires Wikidata')
+  }
+
+  const [label, classes, dataProperties, imageUrl, imdbUrl] = await Promise.all([
+    wd.wdLabel(endpoint, seedUri),
+    fetchResourceClasses(endpoint, seedUri),
+    fetchDataProperties(endpoint, seedUri),
+    wd.wdEntityImage(endpoint, seedUri, 360),
+    wd.wdImdbUrl(endpoint, seedUri),
+  ])
+
+  const center: GraphNode = {
+    id: seedUri,
+    uri: seedUri,
+    label: label || localName(seedUri),
+    type: 'resource',
+    classes,
+    dataProperties,
+    __hopDepth: 0,
+    __pulse: 1,
+    __imageUrl: imageUrl || undefined,
+  }
+
+  const curated = flattenFacetPredicates(
+    WORK_FACETS.filter((f) => WORK_SEED_FACET_IDS.includes(f.id)),
+  )
+  const hubs = buildHubsFromPredicates(
+    seedUri,
+    curated.map((p) => ({
+      predicate: p.predicate,
+      direction: p.direction,
+      label: p.label,
+    })),
+    1,
+  )
+
+  const values = await expandRelationHubValues(endpoint, hubs.nodes, 14)
+
+  const nodeMap = new Map<string, GraphNode>([[seedUri, center]])
+  const linkMap = new Map<string, GraphLink>()
+  for (const n of [...hubs.nodes, ...values.nodes]) {
+    if (!nodeMap.has(n.id)) nodeMap.set(n.id, n)
+  }
+  for (const l of [...hubs.links, ...values.links]) {
+    if (!linkMap.has(l.id)) linkMap.set(l.id, l)
+  }
+
+  for (const n of [...nodeMap.values()]) {
+    if (n.type !== 'relation') continue
+    const kids = [...linkMap.values()].filter((l) => l.source === n.id)
+    if (!kids.length) {
+      nodeMap.delete(n.id)
+      for (const [lid, l] of [...linkMap.entries()]) {
+        if (l.target === n.id || l.source === n.id) linkMap.delete(lid)
+      }
+    }
+  }
+
+  const nodes = [...nodeMap.values()]
+  const links = [...linkMap.values()]
+  const people = nodes.filter((n) => n.type === 'resource' && n.id !== seedUri).length
+  const hubsLeft = nodes.filter((n) => n.type === 'relation').length
+
+  return {
+    nodes,
+    links,
+    seedUri,
+    imdbUrl,
+    label: center.label,
+    dataProperties,
+    classes,
+    message: imdbUrl
+      ? `IMDb ontology · ${hubsLeft} facets · ${people} linked · IMDb available`
+      : `IMDb ontology · ${hubsLeft} facets · ${people} linked (no IMDb id on Wikidata)`,
+  }
+}
+

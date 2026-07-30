@@ -1,0 +1,26 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/sparql/wikidata", "destination": "/api/sparql?source=wikidata" },
+    { "source": "/sparql/dbpedia", "destination": "/api/sparql?source=dbpedia" },
+    { "source": "/sparql/yago", "destination": "/api/sparql?source=yago" },
+    { "source": "/sparql", "destination": "/api/sparql?source=dbpedia" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    },
+    {
+      "source": "/sparql(.*)",
+      "headers": [
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    }
+  ]
+}

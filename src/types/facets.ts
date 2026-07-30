@@ -14,6 +14,11 @@ export type FacetId =
   | 'business'
   | 'leadership'
   | 'works'
+  | 'cast'
+  | 'crew'
+  | 'music'
+  | 'production'
+  | 'genre'
 
 export interface FacetPredicate {
   predicate: string
@@ -153,6 +158,99 @@ export const ORG_FACETS: KnowledgeFacet[] = [
   },
 ]
 
+/**
+ * IMDb-style entertainment dossier — films, TV, songs, albums (Wikidata props).
+ * Open on IMDb via P345 when present.
+ */
+export const WORK_FACETS: KnowledgeFacet[] = [
+  {
+    id: 'cast',
+    label: 'Cast',
+    hint: 'Actors and voice cast',
+    for: 'work',
+    predicates: [
+      { predicate: `${WDT}P161`, direction: 'out', limit: 16, label: 'cast member' },
+      { predicate: `${WDT}P725`, direction: 'out', limit: 8, label: 'voice actor' },
+      { predicate: `${WDT}P175`, direction: 'out', limit: 8, label: 'performer' },
+    ],
+  },
+  {
+    id: 'crew',
+    label: 'Crew',
+    hint: 'Director, writers, producers',
+    for: 'work',
+    predicates: [
+      { predicate: `${WDT}P57`, direction: 'out', limit: 6, label: 'director' },
+      { predicate: `${WDT}P58`, direction: 'out', limit: 6, label: 'screenwriter' },
+      { predicate: `${WDT}P162`, direction: 'out', limit: 6, label: 'producer' },
+      { predicate: `${WDT}P344`, direction: 'out', limit: 3, label: 'director of photography' },
+      { predicate: `${WDT}P1040`, direction: 'out', limit: 3, label: 'film editor' },
+      { predicate: `${WDT}P1431`, direction: 'out', limit: 4, label: 'executive producer' },
+    ],
+  },
+  {
+    id: 'music',
+    label: 'Music',
+    hint: 'Score, soundtrack, songs',
+    for: 'work',
+    predicates: [
+      { predicate: `${WDT}P86`, direction: 'out', limit: 6, label: 'composer' },
+      { predicate: `${WDT}P406`, direction: 'out', limit: 6, label: 'soundtrack release' },
+      { predicate: `${WDT}P676`, direction: 'out', limit: 4, label: 'lyrics by' },
+      { predicate: `${WDT}P439`, direction: 'in', limit: 8, label: 'music featured' },
+      { predicate: `${WDT}P361`, direction: 'out', limit: 4, label: 'part of' },
+      { predicate: `${WDT}P264`, direction: 'out', limit: 3, label: 'record label' },
+    ],
+  },
+  {
+    id: 'genre',
+    label: 'Genre',
+    hint: 'Genre, subject, based on',
+    for: 'work',
+    predicates: [
+      { predicate: `${WDT}P136`, direction: 'out', limit: 8, label: 'genre' },
+      { predicate: `${WDT}P921`, direction: 'out', limit: 6, label: 'main subject' },
+      { predicate: `${WDT}P144`, direction: 'out', limit: 4, label: 'based on' },
+      { predicate: `${WDT}P179`, direction: 'out', limit: 3, label: 'part of series' },
+    ],
+  },
+  {
+    id: 'production',
+    label: 'Production',
+    hint: 'Studio, country, language, locations',
+    for: 'work',
+    predicates: [
+      { predicate: `${WDT}P272`, direction: 'out', limit: 6, label: 'production company' },
+      { predicate: `${WDT}P495`, direction: 'out', limit: 4, label: 'country of origin' },
+      { predicate: `${WDT}P364`, direction: 'out', limit: 4, label: 'original language' },
+      { predicate: `${WDT}P915`, direction: 'out', limit: 6, label: 'filming location' },
+      { predicate: `${WDT}P840`, direction: 'out', limit: 4, label: 'narrative location' },
+      { predicate: `${WDT}P449`, direction: 'out', limit: 4, label: 'original broadcaster' },
+    ],
+  },
+  {
+    id: 'awards',
+    label: 'Awards',
+    hint: 'Awards and nominations',
+    for: 'work',
+    predicates: [
+      { predicate: `${WDT}P166`, direction: 'out', limit: 12, label: 'award received' },
+      { predicate: `${WDT}P1411`, direction: 'out', limit: 8, label: 'nominated for' },
+    ],
+  },
+  {
+    id: 'identity',
+    label: 'Identity',
+    hint: 'Type, IMDb id, distribution',
+    for: 'work',
+    predicates: [
+      { predicate: `${WDT}P31`, direction: 'out', limit: 4, label: 'instance of' },
+      { predicate: `${WDT}P345`, direction: 'out', limit: 2, label: 'IMDb ID' },
+      { predicate: `${WDT}P750`, direction: 'out', limit: 4, label: 'distributed by' },
+    ],
+  },
+]
+
 /** Default seed mix for a person — complete dossier first paint. */
 export const PERSON_SEED_FACET_IDS: FacetId[] = [
   'identity',
@@ -163,14 +261,25 @@ export const PERSON_SEED_FACET_IDS: FacetId[] = [
   'business',
 ]
 
-export function facetsForKind(kind: 'person' | 'org' | 'other'): KnowledgeFacet[] {
+export const WORK_SEED_FACET_IDS: FacetId[] = [
+  'cast',
+  'crew',
+  'music',
+  'genre',
+  'production',
+  'awards',
+  'identity',
+]
+
+export function facetsForKind(kind: 'person' | 'org' | 'work' | 'other'): KnowledgeFacet[] {
   if (kind === 'person') return PERSON_FACETS
   if (kind === 'org') return ORG_FACETS
+  if (kind === 'work') return WORK_FACETS
   return []
 }
 
 export function facetById(id: FacetId): KnowledgeFacet | undefined {
-  return [...PERSON_FACETS, ...ORG_FACETS].find((f) => f.id === id)
+  return [...PERSON_FACETS, ...ORG_FACETS, ...WORK_FACETS].find((f) => f.id === id)
 }
 
 /** Flatten predicates for seed (dedupe by predicate+direction). */
@@ -192,3 +301,4 @@ export const WDT_HUMAN = 'http://www.wikidata.org/entity/Q5'
 export const WDT_ORG = 'http://www.wikidata.org/entity/Q43229'
 export const WDT_BUSINESS = 'http://www.wikidata.org/entity/Q4830453'
 export const WDT_COMPANY = 'http://www.wikidata.org/entity/Q783794'
+export const WDT_IMDB_ID = `${WDT}P345`

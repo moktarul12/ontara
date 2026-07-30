@@ -26,6 +26,10 @@ export interface GraphNode {
   __direction?: 'out' | 'in'
   /** Portrait / logo URL for UI (imported from source; not a graph node). */
   __imageUrl?: string
+  /** Family-tree generation relative to seed (negative = ancestors). */
+  __familyGen?: number
+  /** Kinship role in family-tree view. */
+  __familyRole?: 'seed' | 'parent' | 'child' | 'spouse' | 'sibling'
 }
 
 export interface GraphLink {
@@ -144,7 +148,7 @@ export const DEFAULT_CONFIG: OntologyConfig = {
   endpoint: WIKIDATA_ENDPOINT,
   seedUri: '',
   seedLabel: '',
-  startMode: 'classmap',
+  startMode: 'resource',
   source: 'wikidata',
 }
 
@@ -279,9 +283,10 @@ export function dataPropertyUriForSource(
 
 export const SEARCH_EXAMPLES_WIKIDATA = [
   { label: 'Amitabh Bachchan', uri: 'http://www.wikidata.org/entity/Q9570' },
-  { label: 'Apple Inc.', uri: 'http://www.wikidata.org/entity/Q312' },
+  { label: 'Sholay', uri: 'http://www.wikidata.org/entity/Q152819' },
   { label: 'The Dark Knight', uri: 'http://www.wikidata.org/entity/Q163872' },
-  { label: 'Albert Einstein', uri: 'http://www.wikidata.org/entity/Q937' },
+  { label: 'Bohemian Rhapsody', uri: 'http://www.wikidata.org/entity/Q187745' },
+  { label: 'Apple Inc.', uri: 'http://www.wikidata.org/entity/Q312' },
 ] as const
 
 export const SEARCH_EXAMPLES_DBPEDIA = [

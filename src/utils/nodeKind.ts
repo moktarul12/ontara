@@ -32,51 +32,51 @@ export const HOP_STYLE: Record<
   { fill: string; border: string; text: string; edge: string; glow: string; label: string }
 > = {
   0: {
-    fill: '#14282c',
-    border: '#e8c56a',
-    text: '#fff8e8',
-    edge: 'rgba(232, 197, 106, 0.55)',
-    glow: 'rgba(232, 197, 106, 0.3)',
+    fill: '#1a1520',
+    border: '#f0a43a',
+    text: '#fff4e0',
+    edge: 'rgba(240, 164, 58, 0.55)',
+    glow: 'rgba(240, 164, 58, 0.32)',
     label: 'Seed',
   },
   1: {
-    fill: '#f4fbf8',
-    border: '#1a9b8e',
-    text: '#102226',
-    edge: 'rgba(61, 220, 151, 0.45)',
-    glow: 'rgba(61, 220, 151, 0.2)',
+    fill: '#121820',
+    border: '#5ec8c0',
+    text: '#e8f6f4',
+    edge: 'rgba(94, 200, 192, 0.45)',
+    glow: 'rgba(94, 200, 192, 0.22)',
     label: 'Hop 1',
   },
   2: {
-    fill: '#f4f8fc',
-    border: '#4a7fa3',
-    text: '#16325c',
-    edge: 'rgba(74, 127, 163, 0.45)',
-    glow: 'rgba(74, 127, 163, 0.2)',
+    fill: '#12161e',
+    border: '#6ea8e8',
+    text: '#e4eefc',
+    edge: 'rgba(110, 168, 232, 0.45)',
+    glow: 'rgba(110, 168, 232, 0.2)',
     label: 'Hop 2',
   },
   3: {
-    fill: '#f8f4fc',
-    border: '#7a5ca3',
-    text: '#2a1a48',
-    edge: 'rgba(122, 92, 163, 0.4)',
-    glow: 'rgba(122, 92, 163, 0.18)',
+    fill: '#16141c',
+    border: '#b89ae8',
+    text: '#f0e8fc',
+    edge: 'rgba(184, 154, 232, 0.4)',
+    glow: 'rgba(184, 154, 232, 0.18)',
     label: 'Hop 3',
   },
   4: {
-    fill: '#fff8f0',
-    border: '#a67c52',
-    text: '#3d2a18',
-    edge: 'rgba(166, 124, 82, 0.4)',
-    glow: 'rgba(166, 124, 82, 0.18)',
+    fill: '#1a1612',
+    border: '#d4a574',
+    text: '#f8eee0',
+    edge: 'rgba(212, 165, 116, 0.4)',
+    glow: 'rgba(212, 165, 116, 0.18)',
     label: 'Hop 4',
   },
   5: {
-    fill: '#fdf6f6',
-    border: '#c45b3a',
-    text: '#4a2418',
-    edge: 'rgba(196, 91, 58, 0.4)',
-    glow: 'rgba(196, 91, 58, 0.18)',
+    fill: '#1a1214',
+    border: '#e87868',
+    text: '#fce8e4',
+    edge: 'rgba(232, 120, 104, 0.4)',
+    glow: 'rgba(232, 120, 104, 0.18)',
     label: 'Hop 5',
   },
 }
@@ -90,16 +90,16 @@ export const KIND_STYLE: Record<
   NodeKind,
   { fill: string; border: string; text: string; shape: string; label: string }
 > = {
-  work: { fill: '#f4f8fc', border: '#4a7fa3', text: '#16325c', shape: 'round-rectangle', label: 'Work' },
-  person: { fill: '#f4fbf8', border: '#1a9b8e', text: '#0d3d32', shape: 'round-rectangle', label: 'Person' },
-  character: { fill: '#fff8f0', border: '#c47a3a', text: '#5c3010', shape: 'round-rectangle', label: 'Character' },
-  place: { fill: '#faf8f0', border: '#a6904a', text: '#3d3518', shape: 'round-rectangle', label: 'Place' },
-  org: { fill: '#f4f6fc', border: '#5a6fa3', text: '#1a2848', shape: 'round-rectangle', label: 'Org' },
-  concept: { fill: '#fdf6f9', border: '#c45b7a', text: '#4a1f35', shape: 'round-rectangle', label: 'Concept' },
-  literal: { fill: '#ffffff', border: '#2a9a9e', text: '#0d4a47', shape: 'round-rectangle', label: 'Literal' },
-  class: { fill: '#f2f7fa', border: '#4a8fb8', text: '#1a455c', shape: 'round-rectangle', label: 'Class' },
-  relation: { fill: '#1f6b52', border: '#3ddc97', text: '#ffffff', shape: 'round-rectangle', label: 'Property' },
-  entity: { fill: '#f7fbfa', border: '#3a7a72', text: '#102226', shape: 'round-rectangle', label: 'Entity' },
+  work: { fill: '#141c28', border: '#6ea8e8', text: '#dce8f8', shape: 'round-rectangle', label: 'Work' },
+  person: { fill: '#12201c', border: '#5ec8c0', text: '#d8f4f0', shape: 'round-rectangle', label: 'Person' },
+  character: { fill: '#1c1810', border: '#e0a050', text: '#f8e8c8', shape: 'round-rectangle', label: 'Character' },
+  place: { fill: '#1a1810', border: '#c8b060', text: '#f0e8c8', shape: 'round-rectangle', label: 'Place' },
+  org: { fill: '#141820', border: '#7a8ec8', text: '#dce0f0', shape: 'round-rectangle', label: 'Org' },
+  concept: { fill: '#1c1418', border: '#e07898', text: '#f8e0e8', shape: 'round-rectangle', label: 'Concept' },
+  literal: { fill: '#101820', border: '#5ec8c0', text: '#d8f4f0', shape: 'round-rectangle', label: 'Literal' },
+  class: { fill: '#121820', border: '#6ea8e8', text: '#dce8f8', shape: 'round-rectangle', label: 'Class' },
+  relation: { fill: '#0e2a24', border: '#5ec8c0', text: '#e8fff8', shape: 'round-rectangle', label: 'Property' },
+  entity: { fill: '#14161c', border: '#8a929c', text: '#e8eaed', shape: 'round-rectangle', label: 'Entity' },
 }
 
 function clip(s: string, max: number) {
@@ -181,6 +181,23 @@ export function ontologyNodeColors(node: GraphNode): {
   border: string
   text: string
 } {
+  if (node.__familyRole === 'seed') {
+    return { fill: '#1a1520', border: '#f0a43a', text: '#fff4e0' }
+  }
+  if (node.__familyRole) {
+    const familyColors: Record<
+      NonNullable<GraphNode['__familyRole']>,
+      { fill: string; border: string; text: string }
+    > = {
+      seed: { fill: '#1a1520', border: '#f0a43a', text: '#fff4e0' },
+      parent: { fill: '#121820', border: '#6ea8e8', text: '#dce8f8' },
+      child: { fill: '#12201c', border: '#5ec8c0', text: '#d8f4f0' },
+      spouse: { fill: '#1c1810', border: '#e0a050', text: '#f8e8c8' },
+      sibling: { fill: '#141820', border: '#7a8ec8', text: '#dce0f0' },
+    }
+    return familyColors[node.__familyRole]
+  }
+
   const hop = node.__hopDepth ?? 0
   if (hop === 0) {
     return { fill: '#14282c', border: '#e8c56a', text: '#fff8e8' }

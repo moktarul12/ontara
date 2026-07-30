@@ -23,7 +23,7 @@ import { GraphLegend } from './GraphLegend'
 
 cytoscape.use(coseBilkent)
 
-export type GraphLayoutMode = 'hops' | 'orbit' | 'auto'
+export type GraphLayoutMode = 'hops' | 'orbit' | 'auto' | 'family'
 
 export type KnowledgeGraphHandle = {
   exportImage: (format: 'png' | 'jpg') => Promise<void>
@@ -144,16 +144,17 @@ function buildElements(data: GraphData): ElementDefinition[] {
         ...(hasImage
           ? {
               'background-image': n.__imageUrl,
+              'background-image-crossorigin': 'anonymous',
               'background-fit': 'cover',
               'background-clip': 'node',
               'background-image-opacity': 1,
               'background-position-y': '0%',
-              'background-height': isRoot ? '68%' : '100%',
+              'background-height': isRoot ? '72%' : '100%',
               'background-width': '100%',
               'text-valign': isRoot ? 'bottom' : 'center',
               'text-margin-y': isRoot ? -6 : 0,
               'text-background-color': colors.fill,
-              'text-background-opacity': isRoot ? 0.88 : 0,
+              'text-background-opacity': isRoot ? 0.9 : 0,
               'text-background-padding': '3px',
               'text-background-shape': 'roundrectangle',
             }
@@ -256,6 +257,17 @@ const CY_STYLE = [
     style: {
       'background-opacity': 1,
       'border-width': 2.5,
+      'background-image-crossorigin': 'anonymous',
+    },
+  },
+  {
+    selector: 'node.is-root.has-image',
+    style: {
+      width: 120,
+      height: 132,
+      'background-height': '72%',
+      'text-valign': 'bottom',
+      'text-margin-y': -6,
     },
   },
   {
@@ -461,6 +473,47 @@ function placeOrbitRings(cy: Core, data: GraphData) {
   })
 }
 
+function placeFamilyPedigree(cy: Core, data: GraphData) {
+  const byGen = new Map<number, GraphNode[]>()
+  for (const n of data.nodes) {
+    if (n.type === 'relation' || n.type === 'literal') continue
+    const g = n.__familyGen ?? 0
+    const list = byGen.get(g) ?? []
+    list.push(n)
+    byGen.set(g, list)
+  }
+
+  const roleRank = (role?: GraphNode['__familyRole']) => {
+    if (role === 'seed') return 0
+    if (role === 'spouse') return 1
+    if (role === 'sibling') return 2
+    if (role === 'parent') return 3
+    if (role === 'child') return 4
+    return 5
+  }
+
+  const BAND = 150
+  const GAP = 128
+
+  cy.batch(() => {
+    for (const [gen, members] of byGen) {
+      members.sort((a, b) => {
+        const ra = roleRank(a.__familyRole)
+        const rb = roleRank(b.__familyRole)
+        if (ra !== rb) return ra - rb
+        return a.label.localeCompare(b.label)
+      })
+      const y = gen * BAND
+      const totalW = Math.max(0, members.length - 1) * GAP
+      members.forEach((m, i) => {
+        const el = cy.getElementById(m.id)
+        if (el.empty()) return
+        el.position({ x: -totalW / 2 + i * GAP, y })
+      })
+    }
+  })
+}
+
 function fitAfter(cy: Core) {
   cy.stop()
   cy.fit(undefined, 56)
@@ -476,6 +529,12 @@ function runLayout(
   if (!n) return
   cy.stop()
   const hasHubs = graphHasOntologyHubs(data)
+
+  if (mode === 'family') {
+    placeFamilyPedigree(cy, data)
+    fitAfter(cy)
+    return
+  }
 
   if (mode === 'orbit' || (mode === 'hops' && !hasHubs)) {
     placeOrbitRings(cy, data)
@@ -535,7 +594,12 @@ function applyHighlights(
         'text-max-width': Number(node.data('textMax') ?? boxW - 14),
       }
       const img = String(node.data('imageUrl') || '')
-      if (img) next['background-image'] = img
+      if (img) {
+        next['background-image'] = img
+        next['background-image-crossorigin'] = 'anonymous'
+        next['background-fit'] = 'cover'
+        next['background-clip'] = 'node'
+      }
       node.style(next)
     })
 

@@ -15,12 +15,14 @@ import { HopQuick } from './HopQuick'
 
 interface Props {
   store: OntologyStore
+  variant?: 'hero' | 'compact'
   showExamples?: boolean
   onSuggestOpenChange?: (open: boolean) => void
 }
 
 export function GraphSearch({
   store,
+  variant = 'compact',
   showExamples = false,
   onSuggestOpenChange,
 }: Props) {
@@ -36,6 +38,7 @@ export function GraphSearch({
   const [withinSelected, setWithinSelected] = useState(false)
   const [searched, setSearched] = useState(false)
   const [suggestionsLocked, setSuggestionsLocked] = useState(false)
+  const [advanced, setAdvanced] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const abortRef = useRef<number>(0)
 
@@ -199,56 +202,64 @@ export function GraphSearch({
 
   const showEntityChips = showExamples && mode === 'entity' && !query.trim() && !suggestVisible
   const showPropChips = showExamples && mode === 'dataprop' && !suggestVisible
+  const isHero = variant === 'hero'
 
   return (
-    <div className={`search-dock ${suggestVisible ? 'suggesting' : ''}`} ref={wrapRef}>
+    <div
+      className={`search-dock variant-${variant} ${suggestVisible ? 'suggesting' : ''}`}
+      ref={wrapRef}
+    >
       <div className="search-dock-row">
-        <div className="search-mode-toggle" role="group" aria-label="Search mode">
-          <button
-            type="button"
-            className={mode === 'entity' ? 'on' : ''}
-            onClick={() => {
-              setMode('entity')
-              setShowDropdown(false)
-              setResults([])
-              setSuggestionsLocked(false)
-            }}
-          >
-            Entity
-          </button>
-          <button
-            type="button"
-            className={mode === 'dataprop' ? 'on' : ''}
-            onClick={() => {
-              setMode('dataprop')
-              setShowDropdown(false)
-              setResults([])
-              setSuggestionsLocked(false)
-              setWithinSelected(false)
-            }}
-          >
-            Data property
-          </button>
-        </div>
-
-        <form className={`search-form ${mode === 'dataprop' ? 'dataprop' : ''}`} onSubmit={handleSubmit}>
-          <label className="sf-field sf-class">
-            <span>Class</span>
-            <select
-              value={typeScope}
-              onChange={(e) => {
-                setSuggestionsLocked(false)
-                setTypeScope(e.target.value as SearchTypeScopeId)
+        {(!isHero || advanced) && (
+          <div className="search-mode-toggle" role="group" aria-label="Search mode">
+            <button
+              type="button"
+              className={mode === 'entity' ? 'on' : ''}
+              onClick={() => {
+                setMode('entity')
                 setShowDropdown(false)
+                setResults([])
+                setSuggestionsLocked(false)
               }}
             >
-              {scopes.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              Entity
+            </button>
+            <button
+              type="button"
+              className={mode === 'dataprop' ? 'on' : ''}
+              onClick={() => {
+                setMode('dataprop')
+                setShowDropdown(false)
+                setResults([])
+                setSuggestionsLocked(false)
+                setWithinSelected(false)
+              }}
+            >
+              Property
+            </button>
+          </div>
+        )}
+
+        <form className={`search-form ${mode === 'dataprop' ? 'dataprop' : ''}`} onSubmit={handleSubmit}>
+          {(!isHero || advanced) && (
+            <label className="sf-field sf-class">
+              <span>Class</span>
+              <select
+                value={typeScope}
+                onChange={(e) => {
+                  setSuggestionsLocked(false)
+                  setTypeScope(e.target.value as SearchTypeScopeId)
+                  setShowDropdown(false)
+                }}
+              >
+                {scopes.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           {mode === 'dataprop' && (
             <label className="sf-field sf-prop">
@@ -270,8 +281,8 @@ export function GraphSearch({
             </label>
           )}
 
-          <label className="sf-field sf-value">
-            <span>Value</span>
+          <label className={`sf-field sf-value ${isHero ? 'hero-value' : ''}`}>
+            {!isHero && <span>Search</span>}
             <input
               value={query}
               onChange={(e) => {
@@ -286,12 +297,15 @@ export function GraphSearch({
                   ? propertyDef?.valueKind === 'entity'
                     ? 'e.g. London, India, Action…'
                     : 'e.g. 1879, 2008-07-18…'
-                  : `Search ${
-                      source === 'wikidata' ? 'Wikidata' : source === 'yago' ? 'YAGO' : 'DBpedia'
-                    }…`
+                  : isHero
+                    ? 'Try Amitabh Bachchan, Apple, Paris…'
+                    : `Search ${
+                        source === 'wikidata' ? 'Wikidata' : source === 'yago' ? 'YAGO' : 'DBpedia'
+                      }…`
               }
               autoComplete="off"
               spellCheck={false}
+              autoFocus={isHero}
             />
           </label>
 
@@ -306,9 +320,19 @@ export function GraphSearch({
                 : !query.trim() && !withinSelected && !classUri)
             }
           >
-            {busy || loading ? '…' : 'Search'}
+            {busy || loading ? '…' : isHero ? 'Open graph' : 'Go'}
           </button>
         </form>
+
+        {isHero && (
+          <button
+            type="button"
+            className={`search-advanced-toggle ${advanced ? 'on' : ''}`}
+            onClick={() => setAdvanced((v) => !v)}
+          >
+            {advanced ? 'Simple search' : 'Filters'}
+          </button>
+        )}
 
         {canSearchWithin && (
           <label className={`within-line inline ${withinSelected ? 'on' : ''}`}>
@@ -326,10 +350,11 @@ export function GraphSearch({
           </label>
         )}
 
-        <HopQuick store={store} />
+        {!isHero && <HopQuick store={store} />}
       </div>
+
       {showEntityChips && (
-        <div className="search-examples">
+        <div className="search-examples" aria-label="Try an example">
           {examples.map((ex) => (
             <button
               key={ex.uri}
@@ -361,6 +386,8 @@ export function GraphSearch({
                 setTypeScope(ex.classId)
                 setQuery(ex.value)
                 setSuggestionsLocked(false)
+                setAdvanced(true)
+                setMode('dataprop')
                 void runSearch(ex.value, false)
               }}
             >

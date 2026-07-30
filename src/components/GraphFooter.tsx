@@ -18,14 +18,15 @@ interface Props {
   onFitView: () => void
   onExportPng?: () => void
   onExportJpg?: () => void
+  onHome?: () => void
+  /** Show Family pedigree layout button (person / family view). */
+  showFamilyLayout?: boolean
 }
 
-/** Sticky footer — stats, layout modes, export, fullscreen, legend. */
 export function GraphFooter({
   nodeCount,
   linkCount,
   sourceLabel,
-  isClassMap,
   loading,
   loadingMessage,
   lastMessage,
@@ -38,7 +39,8 @@ export function GraphFooter({
   onAutoArrange,
   onFitView,
   onExportPng,
-  onExportJpg,
+  onHome,
+  showFamilyLayout = false,
 }: Props) {
   const hasGraph = nodeCount > 0
 
@@ -52,19 +54,13 @@ export function GraphFooter({
             </span>
             <span className="stat-dot" aria-hidden />
             <span className="stat">
-              <em>{linkCount}</em> relations
+              <em>{linkCount}</em> links
             </span>
-            {isClassMap && (
-              <>
-                <span className="stat-dot" aria-hidden />
-                <span className="stat soft">ontology map</span>
-              </>
-            )}
             <span className="stat-dot" aria-hidden />
             <span className="stat soft">{sourceLabel}</span>
           </>
         ) : (
-          <span className="stat soft">Empty canvas</span>
+          <span className="stat soft">Opening graph…</span>
         )}
         {loading && (
           <>
@@ -83,13 +79,18 @@ export function GraphFooter({
       </div>
 
       <div className="footer-actions" role="toolbar" aria-label="Canvas tools">
+        {onHome && (
+          <button type="button" className="footer-btn" onClick={onHome} title="New search">
+            Home
+          </button>
+        )}
         <div className="footer-mode-group" role="group" aria-label="Layout view">
           <button
             type="button"
             className={`footer-btn ${layoutMode === 'hops' ? 'on' : ''}`}
             disabled={!hasGraph}
             onClick={() => onLayoutMode('hops')}
-            title="Hops view — property clusters"
+            title="Hops view"
           >
             Hops
           </button>
@@ -98,10 +99,21 @@ export function GraphFooter({
             className={`footer-btn ${layoutMode === 'orbit' ? 'on' : ''}`}
             disabled={!hasGraph}
             onClick={() => onLayoutMode('orbit')}
-            title="Orbit view — concentric hop rings"
+            title="Orbit view"
           >
             Orbit
           </button>
+          {showFamilyLayout && (
+            <button
+              type="button"
+              className={`footer-btn ${layoutMode === 'family' ? 'on' : ''}`}
+              disabled={!hasGraph}
+              onClick={() => onLayoutMode('family')}
+              title="Family pedigree layout"
+            >
+              Family
+            </button>
+          )}
           <button
             type="button"
             className={`footer-btn ${layoutMode === 'auto' ? 'on' : ''}`}
@@ -110,19 +122,13 @@ export function GraphFooter({
               onLayoutMode('auto')
               onAutoArrange()
             }}
-            title="Auto-arrange — organic force layout"
+            title="Auto-arrange"
           >
             Auto
           </button>
         </div>
 
-        <button
-          type="button"
-          className="footer-btn"
-          disabled={!hasGraph}
-          onClick={onFitView}
-          title="Fit graph in view"
-        >
+        <button type="button" className="footer-btn" disabled={!hasGraph} onClick={onFitView}>
           Fit
         </button>
         <button
@@ -130,35 +136,23 @@ export function GraphFooter({
           className="footer-btn"
           disabled={!hasGraph || !onExportPng}
           onClick={() => onExportPng?.()}
-          title="Export graph as PNG image"
         >
           PNG
-        </button>
-        <button
-          type="button"
-          className="footer-btn"
-          disabled={!hasGraph || !onExportJpg}
-          onClick={() => onExportJpg?.()}
-          title="Export graph as JPG image"
-        >
-          JPG
         </button>
         <button
           type="button"
           className={`footer-btn ${legendVisible ? 'on' : ''}`}
           disabled={!hasGraph}
           onClick={onToggleLegend}
-          title={legendVisible ? 'Hide legend' : 'Show legend'}
         >
-          {legendVisible ? 'Legend' : 'Legend off'}
+          Legend
         </button>
         <button
           type="button"
           className={`footer-btn accent ${fullscreen ? 'on' : ''}`}
           onClick={onToggleFullscreen}
-          title={fullscreen ? 'Exit fullscreen canvas' : 'Fullscreen canvas'}
         >
-          {fullscreen ? 'Exit full' : 'Fullscreen'}
+          {fullscreen ? 'Exit' : 'Full'}
         </button>
       </div>
     </footer>
