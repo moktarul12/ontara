@@ -23,7 +23,7 @@ import { GraphLegend } from './GraphLegend'
 
 cytoscape.use(coseBilkent)
 
-export type GraphLayoutMode = 'hops' | 'orbit' | 'auto' | 'family'
+export type GraphLayoutMode = 'hops' | 'orbit' | 'auto' | 'family' | 'family-cascade'
 
 export type KnowledgeGraphHandle = {
   exportImage: (format: 'png' | 'jpg') => Promise<void>
@@ -217,7 +217,7 @@ const CY_STYLE = [
     selector: 'node',
     style: {
       label: 'data(label)',
-      'font-family': 'Outfit, system-ui, sans-serif',
+      'font-family': 'DM Sans, system-ui, sans-serif',
       'font-size': 10,
       'font-weight': 600,
       'text-valign': 'center',
@@ -273,22 +273,27 @@ const CY_STYLE = [
   {
     selector: 'node.selected',
     style: {
-      'border-color': '#e8c56a',
-      'border-width': 3.5,
+      'border-color': '#c07818',
+      'border-width': 4,
       'z-index': 40,
-      'underlay-color': '#e8c56a',
-      'underlay-padding': 5,
-      'underlay-opacity': 0.32,
+      'underlay-color': '#c07818',
+      'underlay-padding': 10,
+      'underlay-opacity': 0.28,
       'underlay-shape': 'round-rectangle',
+      'shadow-blur': 18,
+      'shadow-color': 'rgba(192, 120, 24, 0.45)',
+      'shadow-opacity': 0.85,
+      'shadow-offset-x': 0,
+      'shadow-offset-y': 2,
     },
   },
   {
     selector: 'node.on-path',
     style: {
-      'border-color': '#e8c56a',
-      'underlay-color': '#e8c56a',
+      'border-color': '#c07818',
+      'underlay-color': '#c07818',
       'underlay-padding': 3,
-      'underlay-opacity': 0.2,
+      'underlay-opacity': 0.14,
       'z-index': 30,
     },
   },
@@ -313,17 +318,17 @@ const CY_STYLE = [
       'source-endpoint': 'outside-to-node',
       'target-endpoint': 'outside-to-node',
       label: 'data(label)',
-      'font-family': 'Outfit, system-ui, sans-serif',
+      'font-family': 'DM Sans, system-ui, sans-serif',
       'font-size': 8,
       'font-weight': 600,
-      color: '#c5ddd8',
-      'text-background-color': '#0e1c1e',
-      'text-background-opacity': 0.88,
+      color: '#4a5568',
+      'text-background-color': '#ffffff',
+      'text-background-opacity': 0.92,
       'text-background-padding': '2px',
       'text-background-shape': 'roundrectangle',
       'text-rotation': 'autorotate',
       'text-margin-y': -8,
-      opacity: 0.92,
+      opacity: 0.95,
       'z-index': 1,
     },
   },
@@ -359,8 +364,8 @@ const CY_STYLE = [
     selector: 'edge.hot',
     style: {
       width: 2.8,
-      'line-color': 'rgba(232, 197, 106, 0.95)',
-      'target-arrow-color': 'rgba(232, 197, 106, 1)',
+      'line-color': 'rgba(192, 120, 24, 0.9)',
+      'target-arrow-color': 'rgba(192, 120, 24, 1)',
       'arrow-scale': 1.25,
       opacity: 1,
       'z-index': 20,
@@ -370,8 +375,8 @@ const CY_STYLE = [
     selector: 'edge.on-path',
     style: {
       width: 3.2,
-      'line-color': '#e8c56a',
-      'target-arrow-color': '#e8c56a',
+      'line-color': '#c07818',
+      'target-arrow-color': '#c07818',
       'arrow-scale': 1.3,
       opacity: 1,
       'z-index': 25,
@@ -474,9 +479,9 @@ function placeOrbitRings(cy: Core, data: GraphData) {
 }
 
 function placeFamilyPedigree(cy: Core, data: GraphData) {
+  const people = data.nodes.filter((n) => n.type !== 'relation' && n.type !== 'literal')
   const byGen = new Map<number, GraphNode[]>()
-  for (const n of data.nodes) {
-    if (n.type === 'relation' || n.type === 'literal') continue
+  for (const n of people) {
     const g = n.__familyGen ?? 0
     const list = byGen.get(g) ?? []
     list.push(n)
@@ -492,8 +497,15 @@ function placeFamilyPedigree(cy: Core, data: GraphData) {
     return 5
   }
 
-  const BAND = 150
-  const GAP = 128
+  /** Prefer mothers before fathers within same parent role for visual pairing. */
+  const parentBias = (n: GraphNode) => {
+    const blob = `${n.label} ${n.classes?.join(' ') ?? ''}`.toLowerCase()
+    if (/\bmother\b|female/.test(blob) || n.__familyRole === 'parent') return 0
+    return 1
+  }
+
+  const BAND = 168
+  const GAP = 136
 
   cy.batch(() => {
     for (const [gen, members] of byGen) {
@@ -501,15 +513,145 @@ function placeFamilyPedigree(cy: Core, data: GraphData) {
         const ra = roleRank(a.__familyRole)
         const rb = roleRank(b.__familyRole)
         if (ra !== rb) return ra - rb
+        if (gen !== 0 && a.__familyRole === 'parent' && b.__familyRole === 'parent') {
+          const pb = parentBias(a) - parentBias(b)
+          if (pb !== 0) return pb
+        }
         return a.label.localeCompare(b.label)
       })
-      const y = gen * BAND
+
+      // Seed generation: seed in centre, spouses immediately beside, siblings further out
+      if (gen === 0) {
+        const seed = members.find((m) => m.__familyRole === 'seed') ?? members[0]
+        const spouses = members.filter((m) => m.__familyRole === 'spouse')
+        const siblings = members.filter(
+          (m) => m.id !== seed?.id && m.__familyRole === 'sibling',
+        )
+        const rest = members.filter(
+          (m) =>
+            m.id !== seed?.id &&
+            m.__familyRole !== 'spouse' &&
+            m.__familyRole !== 'sibling',
+        )
+        const ordered: GraphNode[] = [
+          ...siblings.slice(0, Math.ceil(siblings.length / 2)),
+          ...(seed ? [seed] : []),
+          ...spouses,
+          ...rest,
+          ...siblings.slice(Math.ceil(siblings.length / 2)),
+        ]
+        const totalW = Math.max(0, ordered.length - 1) * GAP
+        ordered.forEach((m, i) => {
+          const el = cy.getElementById(m.id)
+          if (el.empty()) return
+          el.position({ x: -totalW / 2 + i * GAP, y: gen * BAND })
+        })
+        continue
+      }
+
       const totalW = Math.max(0, members.length - 1) * GAP
       members.forEach((m, i) => {
         const el = cy.getElementById(m.id)
         if (el.empty()) return
-        el.position({ x: -totalW / 2 + i * GAP, y })
+        el.position({ x: -totalW / 2 + i * GAP, y: gen * BAND })
       })
+    }
+  })
+}
+
+/**
+ * Cascade family arrange: generations as rows; place each child under the average
+ * of known parents so nuclear families cluster vertically.
+ */
+function placeFamilyCascade(cy: Core, data: GraphData) {
+  const people = data.nodes.filter((n) => n.type !== 'relation' && n.type !== 'literal')
+  const byId = new Map(people.map((n) => [n.id, n]))
+  const childrenOf = new Map<string, string[]>()
+  const parentsOf = new Map<string, string[]>()
+
+  for (const l of data.links) {
+    const s = typeof l.source === 'string' ? l.source : l.source.id
+    const t = typeof l.target === 'string' ? l.target : l.target.id
+    if (!byId.has(s) || !byId.has(t)) continue
+    const pred = (l.predicate || '').toLowerCase()
+    const label = (l.predicateLabel || '').toLowerCase()
+    const isChild =
+      /\/p40$|child/.test(pred) || label.includes('child')
+    const isParent =
+      /\/p22$|\/p25$|father|mother/.test(pred) || /father|mother/.test(label)
+    if (isChild) {
+      // s → child t
+      const kids = childrenOf.get(s) ?? []
+      if (!kids.includes(t)) kids.push(t)
+      childrenOf.set(s, kids)
+      const parents = parentsOf.get(t) ?? []
+      if (!parents.includes(s)) parents.push(s)
+      parentsOf.set(t, parents)
+    } else if (isParent) {
+      // s → parent t  (t is parent of s)
+      const parents = parentsOf.get(s) ?? []
+      if (!parents.includes(t)) parents.push(t)
+      parentsOf.set(s, parents)
+      const kids = childrenOf.get(t) ?? []
+      if (!kids.includes(s)) kids.push(s)
+      childrenOf.set(t, kids)
+    }
+  }
+
+  const byGen = new Map<number, GraphNode[]>()
+  for (const n of people) {
+    const g = n.__familyGen ?? 0
+    const list = byGen.get(g) ?? []
+    list.push(n)
+    byGen.set(g, list)
+  }
+
+  const gens = [...byGen.keys()].sort((a, b) => a - b)
+  const BAND = 175
+  const GAP = 120
+  const xOf = new Map<string, number>()
+
+  // Place each generation left→right; use parent midpoints when known
+  for (const gen of gens) {
+    const members = (byGen.get(gen) ?? []).slice().sort((a, b) => {
+      if (a.__familyRole === 'seed') return -1
+      if (b.__familyRole === 'seed') return 1
+      return a.label.localeCompare(b.label)
+    })
+
+    // Desired x from parent average
+    const desired = members.map((m, i) => {
+      const ps = (parentsOf.get(m.id) ?? []).map((p) => xOf.get(p)).filter((x): x is number => x != null)
+      if (ps.length) return ps.reduce((a, b) => a + b, 0) / ps.length
+      return i * GAP
+    })
+
+    // Sort by desired x then pack without overlap
+    const order = members
+      .map((m, i) => ({ m, d: desired[i]! }))
+      .sort((a, b) => a.d - b.d)
+
+    let cursor = 0
+    order.forEach((item, idx) => {
+      const target = idx === 0 ? item.d : Math.max(item.d, cursor + GAP)
+      xOf.set(item.m.id, target)
+      cursor = target
+    })
+
+    // Re-centre generation around 0
+    const xs = order.map((o) => xOf.get(o.m.id)!)
+    const mid = (Math.min(...xs) + Math.max(...xs)) / 2
+    for (const o of order) {
+      xOf.set(o.m.id, xOf.get(o.m.id)! - mid)
+    }
+  }
+
+  cy.batch(() => {
+    for (const n of people) {
+      const el = cy.getElementById(n.id)
+      if (el.empty()) return
+      const gen = n.__familyGen ?? 0
+      el.position({ x: xOf.get(n.id) ?? 0, y: gen * BAND })
     }
   })
 }
@@ -532,6 +674,12 @@ function runLayout(
 
   if (mode === 'family') {
     placeFamilyPedigree(cy, data)
+    fitAfter(cy)
+    return
+  }
+
+  if (mode === 'family-cascade') {
+    placeFamilyCascade(cy, data)
     fitAfter(cy)
     return
   }
@@ -584,14 +732,23 @@ function applyHighlights(
 
       const boxW = Number(node.data('boxW') ?? 100)
       const boxH = Number(node.data('boxH') ?? 44)
-      const bump = selected ? 8 : onPath ? 4 : 0
+      const bump = selected ? 10 : onPath ? 4 : 0
       const next: Record<string, string | number> = {
         width: boxW + bump,
-        height: boxH + bump * 0.2,
+        height: boxH + bump * 0.35,
         'background-color': node.data('fill'),
-        'border-color': selected || onPath ? '#e8c56a' : node.data('border'),
+        'border-color': selected || onPath ? '#c07818' : node.data('border'),
+        'border-width': selected ? 4 : onPath ? 3 : 2,
         color: node.data('textColor'),
         'text-max-width': Number(node.data('textMax') ?? boxW - 14),
+        'underlay-color': '#c07818',
+        'underlay-padding': selected ? 10 : 0,
+        'underlay-opacity': selected ? 0.28 : 0,
+        'shadow-blur': selected ? 18 : 0,
+        'shadow-color': 'rgba(192, 120, 24, 0.45)',
+        'shadow-opacity': selected ? 0.85 : 0,
+        'shadow-offset-x': 0,
+        'shadow-offset-y': selected ? 2 : 0,
       }
       const img = String(node.data('imageUrl') || '')
       if (img) {

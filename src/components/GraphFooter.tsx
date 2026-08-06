@@ -19,7 +19,6 @@ interface Props {
   onExportPng?: () => void
   onExportJpg?: () => void
   onHome?: () => void
-  /** Show Family pedigree layout button (person / family view). */
   showFamilyLayout?: boolean
 }
 
@@ -45,12 +44,12 @@ export function GraphFooter({
   const hasGraph = nodeCount > 0
 
   return (
-    <footer className="graph-footer">
+    <footer className="graph-footer" aria-label="Canvas toolbar">
       <div className="footer-stats">
         {hasGraph ? (
           <>
             <span className="stat">
-              <em>{nodeCount}</em> nodes
+              <em>{nodeCount}</em> items
             </span>
             <span className="stat-dot" aria-hidden />
             <span className="stat">
@@ -60,7 +59,7 @@ export function GraphFooter({
             <span className="stat soft">{sourceLabel}</span>
           </>
         ) : (
-          <span className="stat soft">Opening graph…</span>
+          <span className="stat soft">Opening map…</span>
         )}
         {loading && (
           <>
@@ -78,41 +77,52 @@ export function GraphFooter({
         )}
       </div>
 
-      <div className="footer-actions" role="toolbar" aria-label="Canvas tools">
+      <div className="footer-actions" role="toolbar" aria-label="Map tools">
         {onHome && (
           <button type="button" className="footer-btn" onClick={onHome} title="New search">
             Home
           </button>
         )}
-        <div className="footer-mode-group" role="group" aria-label="Layout view">
+        <div className="footer-mode-group" role="group" aria-label="Layout">
           <button
             type="button"
             className={`footer-btn ${layoutMode === 'hops' ? 'on' : ''}`}
             disabled={!hasGraph}
             onClick={() => onLayoutMode('hops')}
-            title="Hops view"
+            title="Arrange by distance from focus"
           >
-            Hops
+            Distance
           </button>
           <button
             type="button"
             className={`footer-btn ${layoutMode === 'orbit' ? 'on' : ''}`}
             disabled={!hasGraph}
             onClick={() => onLayoutMode('orbit')}
-            title="Orbit view"
+            title="Circular layout"
           >
             Orbit
           </button>
           {showFamilyLayout && (
-            <button
-              type="button"
-              className={`footer-btn ${layoutMode === 'family' ? 'on' : ''}`}
-              disabled={!hasGraph}
-              onClick={() => onLayoutMode('family')}
-              title="Family pedigree layout"
-            >
-              Family
-            </button>
+            <>
+              <button
+                type="button"
+                className={`footer-btn ${layoutMode === 'family' ? 'on' : ''}`}
+                disabled={!hasGraph}
+                onClick={() => onLayoutMode('family')}
+                title="Pedigree rows — generations left to right"
+              >
+                Pedigree
+              </button>
+              <button
+                type="button"
+                className={`footer-btn ${layoutMode === 'family-cascade' ? 'on' : ''}`}
+                disabled={!hasGraph}
+                onClick={() => onLayoutMode('family-cascade')}
+                title="Cascade — children nest under parents"
+              >
+                Cascade
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -122,14 +132,14 @@ export function GraphFooter({
               onLayoutMode('auto')
               onAutoArrange()
             }}
-            title="Auto-arrange"
+            title="Auto-arrange for readability"
           >
-            Auto
+            Arrange
           </button>
         </div>
 
         <button type="button" className="footer-btn" disabled={!hasGraph} onClick={onFitView}>
-          Fit
+          Fit view
         </button>
         <button
           type="button"
@@ -137,7 +147,7 @@ export function GraphFooter({
           disabled={!hasGraph || !onExportPng}
           onClick={() => onExportPng?.()}
         >
-          PNG
+          Save PNG
         </button>
         <button
           type="button"
@@ -145,14 +155,14 @@ export function GraphFooter({
           disabled={!hasGraph}
           onClick={onToggleLegend}
         >
-          Legend
+          Guide
         </button>
         <button
           type="button"
           className={`footer-btn accent ${fullscreen ? 'on' : ''}`}
           onClick={onToggleFullscreen}
         >
-          {fullscreen ? 'Exit' : 'Full'}
+          {fullscreen ? 'Exit full' : 'Fullscreen'}
         </button>
       </div>
     </footer>

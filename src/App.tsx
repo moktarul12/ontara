@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { ExplorePanel } from './components/ExplorePanel'
-import { FacetBar } from './components/FacetBar'
 import { GraphFooter } from './components/GraphFooter'
-import { GraphSearch } from './components/GraphSearch'
 import { HomeLanding } from './components/HomeLanding'
 import {
   KnowledgeGraph,
   type GraphLayoutMode,
   type KnowledgeGraphHandle,
 } from './components/KnowledgeGraph'
+import { StudioHorizon } from './components/StudioHorizon'
 import { useOntologyStore } from './hooks/useOntologyStore'
 import { SPARQL_SOURCES, sourceDisplayName, type SparqlSourceId } from './types/ontology'
 import { entityFromHash, hashForEntity } from './utils/entityUrl'
@@ -27,7 +26,6 @@ export default function App() {
   const graphRef = useRef<KnowledgeGraphHandle>(null)
   const bootHash = useRef(false)
 
-  // Deep-link from hash once on mount
   useEffect(() => {
     if (bootHash.current) return
     bootHash.current = true
@@ -36,7 +34,6 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once on mount
   }, [])
 
-  // Keep hash in sync with open entity
   useEffect(() => {
     if (!isResource || !store.config.seedUri) return
     const next = hashForEntity(store.config.seedUri, store.config.source)
@@ -45,14 +42,14 @@ export default function App() {
     }
   }, [isResource, store.config.seedUri, store.config.source])
 
-  // New entity / home → keep inspector closed (canvas stays full width)
   useEffect(() => {
-    setPanelCollapsed(true)
-  }, [store.config.seedUri])
-
-  useEffect(() => {
-    if (store.viewMode === 'family') setLayoutMode('family')
-    else if (layoutMode === 'family') setLayoutMode('hops')
+    if (store.viewMode === 'family') {
+      if (layoutMode !== 'family' && layoutMode !== 'family-cascade') {
+        setLayoutMode('family')
+      }
+    } else if (layoutMode === 'family' || layoutMode === 'family-cascade') {
+      setLayoutMode('hops')
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to viewMode
   }, [store.viewMode])
 
@@ -83,10 +80,30 @@ export default function App() {
     if (!fullscreen) setPanelCollapsed(false)
   }
 
+  /** Select → right panel + selection shadow; pull every connection type onto the map. */
   const onNodeClick = (nodeId: string) => {
-    void store.selectNode(nodeId)
     openPanel()
+    void (async () => {
+      await store.selectNode(nodeId)
+      if (
+        nodeId.startsWith('literal:') ||
+        nodeId.startsWith('relhub:') ||
+        store.viewMode === 'family' ||
+        store.viewMode === 'imdb'
+      ) {
+        return
+      }
+      await store.expandNode('both', { all: true, steps: 1, nodeId })
+    })()
   }
+
+  // After seed opens, open the right flyout with the root entity.
+  useEffect(() => {
+    if (!hasGraph || !store.pathRootId || fullscreen) return
+    openPanel()
+    void store.selectNode(store.pathRootId)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open when seed appears
+  }, [store.pathRootId])
 
   const onChangeSource = (source: SparqlSourceId) => {
     const endpoint =
@@ -127,47 +144,22 @@ export default function App() {
   return (
     <div className={`app-shell studio-shell ${fullscreen ? 'canvas-fullscreen' : ''}`}>
       {!fullscreen && (
-        <header className="studio-bar">
-          <button type="button" className="brand brand-btn" onClick={goHome} title="Back home">
-            <span className="brand-mark" aria-hidden />
-            <span className="brand-name">Ontara</span>
-          </button>
-
-          <div className="studio-search-slot">
-            <GraphSearch store={store} variant="compact" />
-          </div>
-
-          <div className="source-toggle slim" role="group" aria-label="Knowledge source">
-            {SPARQL_SOURCES.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                className={`source-btn ${store.config.source === s.id ? 'active' : ''}`}
-                disabled={store.loading}
-                onClick={() => onChangeSource(s.id)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </header>
+        <StudioHorizon
+          store={store}
+          onChangeSource={onChangeSource}
+          onHome={goHome}
+          onFamilyLayout={() => {
+            setLayoutMode('family')
+            setLayoutKey((k) => k + 1)
+          }}
+        />
       )}
 
       <main
         className={`workspace ${panelCollapsed || fullscreen ? 'panel-collapsed' : 'panel-open'} ${fullscreen ? 'is-fullscreen' : ''}`}
       >
         <div className="stage-column">
-          {isResource && !fullscreen && (
-            <FacetBar
-              store={store}
-              onFamilyLayout={() => {
-                setLayoutMode('family')
-                setLayoutKey((k) => k + 1)
-              }}
-            />
-          )}
-
-          <section className="canvas-frame">
+          <section className="canvas-frame canvas-rise">
             {store.loading && !hasGraph && (
               <div className="stage-loading" role="status">
                 <span className="stage-loading-pulse" aria-hidden />
@@ -187,19 +179,7 @@ export default function App() {
               layoutMode={layoutMode}
               showLegend={legendVisible}
               onNodeClick={(node) => onNodeClick(node.id)}
-              onNodeExpand={(node) => {
-                void store.selectNode(node.id)
-                openPanel()
-                if (
-                  node.type === 'literal' ||
-                  node.type === 'relation' ||
-                  node.id.startsWith('literal:') ||
-                  node.id.startsWith('relhub:')
-                ) {
-                  return
-                }
-                void store.expandNode('both', { all: true, steps: 1, nodeId: node.id })
-              }}
+              onNodeExpand={(node) => onNodeClick(node.id)}
             />
           </section>
 
@@ -232,18 +212,24 @@ export default function App() {
           />
         </div>
 
-        {!fullscreen && !panelCollapsed && (
+        {!fullscreen && (
           <>
-            <button
-              type="button"
-              className="inspector-backdrop"
-              aria-label="Close inspector"
-              onClick={() => setPanelCollapsed(true)}
-            />
+            {!panelCollapsed && (
+              <button
+                type="button"
+                className="inspector-backdrop"
+                aria-label="Close details"
+                onClick={() => setPanelCollapsed(true)}
+              />
+            )}
             <ExplorePanel
               store={store}
-              collapsed={false}
-              onToggleCollapse={() => setPanelCollapsed(true)}
+              collapsed={panelCollapsed}
+              onToggleCollapse={() => setPanelCollapsed((v) => !v)}
+              onFamilyLayout={() => {
+                setLayoutMode('family')
+                setLayoutKey((k) => k + 1)
+              }}
             />
           </>
         )}

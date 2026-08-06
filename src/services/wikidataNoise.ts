@@ -33,11 +33,83 @@ export const WD_URL_PREDICATES = new Set([
   `${WDT}P2699`, // URL
   `${WDT}P1325`, // external data available at URL
   `${WDT}P854`, // reference URL (sometimes as statement)
+  `${WDT}P345`, // IMDb ID
+  `${WDT}P214`, // VIAF
+  `${WDT}P244`, // Library of Congress authority ID
+  `${WDT}P213`, // ISNI
+  `${WDT}P227`, // GND ID
+  `${WDT}P646`, // Freebase ID
+  `${WDT}P2387`, // Elonet person ID
+  `${WDT}P2605`, // ČSFD person ID
+  `${WDT}P4985`, // TMDB person ID
+  `${WDT}P2002`, // X (Twitter) username
+  `${WDT}P2003`, // Instagram username
+  `${WDT}P2013`, // Facebook ID
+  `${WDT}P2397`, // YouTube channel ID
+  `${WDT}P434`, // MusicBrainz artist ID
+  `${WDT}P1953`, // Discogs artist ID
+  `${WDT}P269`, // IdRef ID
+  `${WDT}P268`, // BnF ID
+  `${WDT}P1006`, // NTA ID
+  `${WDT}P396`, // SBN author ID
+  `${WDT}P950`, // BNE ID
+  `${WDT}P349`, // NDL Auth ID
+  `${WDT}P1005`, // PTBNP ID
+  `${WDT}P691`, // NKCR AUT ID
+  `${WDT}P7293`, // PLWABN ID
+  `${WDT}P3987`, // SHARE Catalogue author ID
+  `${WDT}P9984`, // CANTIC ID
+  `${WDT}P5513`, // Enciclopèdia de l'Esport Català ID
+  `${WDT}P1417`, // Encyclopædia Britannica Online ID
+  `${WDT}P3219`, // Encyclopædia Universalis ID
+  `${WDT}P3417`, // Quora topic ID
+  `${WDT}P3365`, // Treccani ID
+  `${WDT}P10527`, // Télé-Loisirs ID
+  `${WDT}P1266`, // AlloCiné person ID
+  `${WDT}P2519`, // Scope.dk person ID
+  `${WDT}P2435`, // PORT person ID
+  `${WDT}P5034`, // National Library of Korea ID
+  `${WDT}P5033`, // Filmweb.pl person ID
+  `${WDT}P2168`, // Swedish Film Database person ID
+  `${WDT}P2604`, // Kinopoisk person ID
+  `${WDT}P4282`, // LUMIERE people ID
+  `${WDT}P8971`, // Cinémathèque québécoise person ID
+  `${WDT}P7400`, // LibraryThing author ID
+  `${WDT}P2963`, // Goodreads author ID
+  `${WDT}P1207`, // NUKAT ID
+  `${WDT}P1315`, // NLA Trove people ID
+  `${WDT}P7369`, // National Library of Chile ID
+  `${WDT}P409`, // Libraries Australia ID
+  `${WDT}P1368`, // LNB ID
+  `${WDT}P1309`, // EGAXA ID
+  `${WDT}P949`, // National Library of Israel ID
+  `${WDT}P3348`, // National Library of Greece ID
+  `${WDT}P1273`, // CANTIC ID (old)
+  `${WDT}P906`, // SELIBR ID
+  `${WDT}P1003`, // National Library of Romania ID
+  `${WDT}P1695`, // NLP ID
+  `${WDT}P1375`, // NSK ID
+  `${WDT}P12483`, // Umění Artlist person ID
+])
+
+/** Wikidata ranks / meta that clutter the map. */
+export const WD_META_PREDICATES = new Set([
+  `${WDT}P31`, // instance of — often noise when many Q-types
+  `${WDT}P735`, // given name chips can flood
+  `${WDT}P734`, // family name
+  `${WDT}P1559`, // name in native language
+  `${WDT}P1477`, // birth name
+  `${WDT}P1449`, // nickname
+  `${WDT}P1705`, // native label
+  `${WDT}P1813`, // short name
+  `${WDT}P742`, // pseudonym
 ])
 
 export function isWikidataNoisePredicate(predicate: string): boolean {
   if (WD_MEDIA_PREDICATES.has(predicate)) return true
   if (WD_URL_PREDICATES.has(predicate)) return true
+  if (WD_META_PREDICATES.has(predicate)) return true
+  // External-ID snak pattern /prop/direct/P#### that look like pure IDs — keep named above
   return false
 }
 

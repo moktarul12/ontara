@@ -30,6 +30,8 @@ export interface GraphNode {
   __familyGen?: number
   /** Kinship role in family-tree view. */
   __familyRole?: 'seed' | 'parent' | 'child' | 'spouse' | 'sibling'
+  /** Cap on how many values to fetch under this property hub. */
+  __valueLimit?: number
 }
 
 export interface GraphLink {

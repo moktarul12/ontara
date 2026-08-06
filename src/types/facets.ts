@@ -60,13 +60,13 @@ export const PERSON_FACETS: KnowledgeFacet[] = [
     hint: 'Parents, spouse, children, relatives',
     for: 'person',
     predicates: [
-      { predicate: `${WDT}P22`, direction: 'out', limit: 2, label: 'father' },
-      { predicate: `${WDT}P25`, direction: 'out', limit: 2, label: 'mother' },
-      { predicate: `${WDT}P26`, direction: 'out', limit: 4, label: 'spouse' },
-      { predicate: `${WDT}P40`, direction: 'out', limit: 8, label: 'child' },
-      { predicate: `${WDT}P3373`, direction: 'out', limit: 8, label: 'sibling' },
-      { predicate: `${WDT}P1038`, direction: 'out', limit: 6, label: 'relative' },
-      { predicate: `${WDT}P451`, direction: 'out', limit: 3, label: 'unmarried partner' },
+      { predicate: `${WDT}P22`, direction: 'out', limit: 4, label: 'father' },
+      { predicate: `${WDT}P25`, direction: 'out', limit: 4, label: 'mother' },
+      { predicate: `${WDT}P26`, direction: 'out', limit: 8, label: 'spouse' },
+      { predicate: `${WDT}P40`, direction: 'out', limit: 40, label: 'child' },
+      { predicate: `${WDT}P3373`, direction: 'out', limit: 40, label: 'sibling' },
+      { predicate: `${WDT}P1038`, direction: 'out', limit: 24, label: 'relative' },
+      { predicate: `${WDT}P451`, direction: 'out', limit: 8, label: 'unmarried partner' },
     ],
   },
   {
@@ -251,25 +251,10 @@ export const WORK_FACETS: KnowledgeFacet[] = [
   },
 ]
 
-/** Default seed mix for a person — complete dossier first paint. */
-export const PERSON_SEED_FACET_IDS: FacetId[] = [
-  'identity',
-  'family',
-  'career',
-  'awards',
-  'politics',
-  'business',
-]
+/** Default seed mix for a person — few high-signal links only. */
+export const PERSON_SEED_FACET_IDS: FacetId[] = ['identity', 'family', 'career']
 
-export const WORK_SEED_FACET_IDS: FacetId[] = [
-  'cast',
-  'crew',
-  'music',
-  'genre',
-  'production',
-  'awards',
-  'identity',
-]
+export const WORK_SEED_FACET_IDS: FacetId[] = ['cast', 'crew', 'genre']
 
 export function facetsForKind(kind: 'person' | 'org' | 'work' | 'other'): KnowledgeFacet[] {
   if (kind === 'person') return PERSON_FACETS

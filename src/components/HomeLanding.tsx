@@ -44,8 +44,8 @@ export function HomeLanding({ store, onChangeSource }: Props) {
           <span className="home-title-em"> map what connects</span>
         </h1>
         <p className="home-lede">
-          Search a person, place, film, or song. Open a living knowledge graph —
-          follow relations, deepen facets, grow hops.
+          Search a person, place, or film. A simple map of what connects — click anyone to see
+          how they link, with facts on the right.
         </p>
 
         <GraphSearch store={store} variant="hero" showExamples />

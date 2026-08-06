@@ -5,34 +5,34 @@ import { CLUSTER_PALETTE } from '../services/ontologyHops'
 export function GraphLegend() {
   return (
     <aside className="graph-legend" aria-label="Graph legend">
-      <p className="legend-title">How to read</p>
+      <p className="legend-title">How to read this map</p>
       <ul>
         <li>
           <span
             className="legend-swatch"
-            style={{ background: '#1a1520', borderColor: '#f0a43a' }}
+            style={{ background: '#fff8eb', borderColor: '#c07818' }}
           />
-          <span>Seed entity</span>
+          <span>Focus person or title</span>
         </li>
         <li>
           <span
             className="legend-swatch pill"
             style={{ background: CLUSTER_PALETTE[0].fill, borderColor: CLUSTER_PALETTE[0].border }}
           />
-          <span>Property chip</span>
+          <span>Link type (e.g. child, cast)</span>
         </li>
         <li>
           <span
             className="legend-swatch"
             style={{
-              background: CLUSTER_PALETTE[0].valueFill,
+              background: '#ffffff',
               borderColor: CLUSTER_PALETTE[0].border,
             }}
           />
-          <span>Value (same colour family)</span>
+          <span>Related person / place / work</span>
         </li>
       </ul>
-      <p className="legend-title spaced">Entity hops</p>
+      <p className="legend-title spaced">Distance from focus</p>
       <ul>
         {([0, 1, 2, 3] as const).map((h) => (
           <li key={h}>
@@ -48,8 +48,8 @@ export function GraphLegend() {
         ))}
       </ul>
       <p className="legend-note">
-        Arrows mark source → destination. Portraits import from Wikidata — not as graph nodes.
-        Hop = entity distance; property chips are not an extra hop.
+        Click a name for a few more links on the map and full details on the right. Use Family tree
+        or Movie credits for a focused layout. Arrow heads show direction.
       </p>
     </aside>
   )

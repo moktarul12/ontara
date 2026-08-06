@@ -59,16 +59,16 @@ export function clusterColorIndex(key: string): number {
   return h % CLUSTER_PALETTE.length
 }
 
-/** Property-cluster colours — hub solid; values share the border (dark canvas). */
+/** Property-cluster colours for light canvas — hub soft fill; values white + shared border. */
 export const CLUSTER_PALETTE = [
-  { fill: '#0e2a24', border: '#5ec8c0', text: '#e8fff8', valueFill: '#12201c', valueText: '#d8f4f0' },
-  { fill: '#2a1420', border: '#e07898', text: '#ffe8f0', valueFill: '#1c1418', valueText: '#f8e0e8' },
-  { fill: '#2a1c10', border: '#f0a43a', text: '#fff4e0', valueFill: '#1c1810', valueText: '#f8e8c8' },
-  { fill: '#121c28', border: '#6ea8e8', text: '#e4eefc', valueFill: '#141c28', valueText: '#dce8f8' },
-  { fill: '#1c1428', border: '#b89ae8', text: '#f0e8fc', valueFill: '#16141c', valueText: '#ece4f8' },
-  { fill: '#0e2428', border: '#4ec4c8', text: '#e0f8f8', valueFill: '#101c20', valueText: '#d0f0f0' },
-  { fill: '#241414', border: '#e87868', text: '#fce8e4', valueFill: '#1a1214', valueText: '#f8d8d0' },
-  { fill: '#182014', border: '#9ab85a', text: '#eef8d8', valueFill: '#141a10', valueText: '#e0ecc8' },
+  { fill: '#d8f0ec', border: '#0d7a72', text: '#0a3d3a', valueFill: '#ffffff', valueText: '#1a2332' },
+  { fill: '#f5e0e8', border: '#a84868', text: '#5a2038', valueFill: '#ffffff', valueText: '#1a2332' },
+  { fill: '#f8ebd8', border: '#c07818', text: '#5a3a10', valueFill: '#ffffff', valueText: '#1a2332' },
+  { fill: '#dde8f6', border: '#2a6fad', text: '#1a3a5a', valueFill: '#ffffff', valueText: '#1a2332' },
+  { fill: '#ebe4f4', border: '#6b5b95', text: '#3a2a5a', valueFill: '#ffffff', valueText: '#1a2332' },
+  { fill: '#d8ecee', border: '#2a8088', text: '#184048', valueFill: '#ffffff', valueText: '#1a2332' },
+  { fill: '#f5e0dc', border: '#b05048', text: '#5a2820', valueFill: '#ffffff', valueText: '#1a2332' },
+  { fill: '#e6eed8', border: '#6a8440', text: '#304018', valueFill: '#ffffff', valueText: '#1a2332' },
 ] as const
 
 function pickRelations(
@@ -211,7 +211,7 @@ export function buildDataPropertyHubs(
 export async function expandRelationHubValues(
   endpoint: string,
   hubs: GraphNode[],
-  neighborsPerHub = 3,
+  neighborsPerHub: number | ((hub: GraphNode) => number) = 3,
 ): Promise<{ nodes: GraphNode[]; links: GraphLink[] }> {
   const nodes: GraphNode[] = []
   const links: GraphLink[] = []
@@ -224,13 +224,19 @@ export async function expandRelationHubValues(
       const predicate = hub.__predicate!
       const direction = hub.__direction ?? 'out'
       const hop = hub.__hopDepth ?? 1
+      const take =
+        typeof neighborsPerHub === 'function'
+          ? neighborsPerHub(hub)
+          : hub.__valueLimit && hub.__valueLimit > 0
+            ? Math.max(neighborsPerHub, hub.__valueLimit)
+            : neighborsPerHub
       try {
         const neighbors = await fetchConnectedNodes(
           endpoint,
           subject,
           predicate,
           direction,
-          neighborsPerHub,
+          Math.max(1, Math.min(60, take)),
         )
         for (const n of neighbors) {
           if (n.uri === subject) continue
@@ -239,7 +245,6 @@ export async function expandRelationHubValues(
           const pair = `${hub.id}|${n.uri}`
           if (seenPair.has(pair)) continue
           seenPair.add(pair)
-          // One global node per URI; first hub wins parent for layout
           if (!nodes.some((x) => x.id === n.uri)) {
             nodes.push({
               id: n.uri,
@@ -402,14 +407,19 @@ export function graphPiecesViaHub(
 
 export const MAX_ONTOLOGY_HOPS = 5
 
-/** Sparse seed defaults — readable first paint (non-person). */
+/** Sparse seed defaults — non-dossier openers. */
 export const SEED_PRED_LIMIT = 6
-export const SEED_VALUES_PER_PRED = 3
-export const SEED_DATA_LIMIT = 3
+export const SEED_VALUES_PER_PRED = 4
+export const SEED_DATA_LIMIT = 2
 
-/** Person / org dossier: richer first paint. */
-export const DOSSIER_VALUES_PER_PRED = 5
+/**
+ * Dossier seed: many values per link type (esp. family — children/siblings).
+ * Users asked to see full families, not a tiny sample of 2–3.
+ */
+export const DOSSIER_VALUES_PER_PRED = 24
 export const DOSSIER_DATA_LIMIT = 2
+/** How many property hubs to start with for a person/work. */
+export const DOSSIER_PRED_LIMIT = 18
 
 export type EntityKind = 'person' | 'org' | 'work' | 'other'
 
@@ -432,6 +442,7 @@ export function buildHubsFromPredicates(
     predicate: string
     direction: 'out' | 'in'
     label?: string
+    valueLimit?: number
   }>,
   entityHop = 1,
 ): { nodes: GraphNode[]; links: GraphLink[] } {
@@ -456,6 +467,7 @@ export function buildHubsFromPredicates(
       __predicate: rel.predicate,
       __direction: rel.direction,
       __pulse: 1,
+      __valueLimit: rel.valueLimit,
     })
     links.push({
       id: linkId(subjectUri, rel.predicate, id),
@@ -494,7 +506,8 @@ function dossierSeedPredicates(
   const preferred = curated.filter((p) => known.has(`${p.direction}:${p.predicate}`))
   const fallback = curated.filter((p) => !known.has(`${p.direction}:${p.predicate}`))
   // Try known first; still include a few unknown (incoming cast etc. may be missing from out-only list)
-  const limit = kind === 'person' ? 22 : kind === 'work' ? 24 : 14
+  const limit =
+    kind === 'person' ? DOSSIER_PRED_LIMIT : kind === 'work' ? DOSSIER_PRED_LIMIT : 10
   const ordered = [...preferred, ...fallback].slice(0, limit)
 
   return ordered.map((p) => ({
@@ -503,7 +516,8 @@ function dossierSeedPredicates(
       p.label ||
       labelByKey.get(`${p.direction}:${p.predicate}`) ||
       localName(p.predicate),
-    count: p.limit ?? -1,
+    // Facet limit drives how many values we pull for this property (family kids, cast, …)
+    count: p.limit && p.limit > 0 ? p.limit : DOSSIER_VALUES_PER_PRED,
     direction: p.direction,
   }))
 }
@@ -578,6 +592,7 @@ export async function fetchOntologyKnowledgeGraph(
         predicate: r.predicate,
         direction: r.direction,
         label: r.predicateLabel,
+        valueLimit: r.count > 0 ? r.count : DOSSIER_VALUES_PER_PRED,
       })),
       1,
     )
@@ -614,7 +629,12 @@ export async function fetchOntologyKnowledgeGraph(
   const objectValues = await expandRelationHubValues(
     endpoint,
     objectHubs.nodes,
-    dossier ? DOSSIER_VALUES_PER_PRED : SEED_VALUES_PER_PRED,
+    (hub) =>
+      hub.__valueLimit && hub.__valueLimit > 0
+        ? hub.__valueLimit
+        : dossier
+          ? DOSSIER_VALUES_PER_PRED
+          : SEED_VALUES_PER_PRED,
   )
 
   const nodeMap = new Map<string, GraphNode>([[uri, center]])
@@ -648,12 +668,12 @@ export async function fetchOntologyKnowledgeGraph(
 
   const kindMsg =
     entityKind === 'person'
-      ? 'Person dossier'
+      ? 'Key people links'
       : entityKind === 'org'
-        ? 'Org leadership view'
+        ? 'Organisation view'
         : entityKind === 'work'
-          ? 'IMDb-style title dossier'
-          : 'Started sparse'
+          ? 'Title highlights'
+          : 'Started simple'
 
   return {
     label: center.label,
@@ -664,7 +684,7 @@ export async function fetchOntologyKnowledgeGraph(
     links,
     appliedHopDepth: 1,
     entityKind,
-    message: `${kindMsg} · ${hubCount} properties · ${valueCount} values · use facets to deepen`,
+    message: `${kindMsg} · ${hubCount} link types · ${valueCount} related · use Family / Depth for more`,
   }
 }
 

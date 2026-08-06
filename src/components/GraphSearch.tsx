@@ -11,7 +11,6 @@ import {
   type SearchMode,
   type SearchTypeScopeId,
 } from '../types/ontology'
-import { HopQuick } from './HopQuick'
 
 interface Props {
   store: OntologyStore
@@ -203,6 +202,7 @@ export function GraphSearch({
   const showEntityChips = showExamples && mode === 'entity' && !query.trim() && !suggestVisible
   const showPropChips = showExamples && mode === 'dataprop' && !suggestVisible
   const isHero = variant === 'hero'
+  const showFilters = advanced
 
   return (
     <div
@@ -210,7 +210,7 @@ export function GraphSearch({
       ref={wrapRef}
     >
       <div className="search-dock-row">
-        {(!isHero || advanced) && (
+        {showFilters && (
           <div className="search-mode-toggle" role="group" aria-label="Search mode">
             <button
               type="button"
@@ -241,7 +241,7 @@ export function GraphSearch({
         )}
 
         <form className={`search-form ${mode === 'dataprop' ? 'dataprop' : ''}`} onSubmit={handleSubmit}>
-          {(!isHero || advanced) && (
+          {showFilters && (
             <label className="sf-field sf-class">
               <span>Class</span>
               <select
@@ -324,17 +324,24 @@ export function GraphSearch({
           </button>
         </form>
 
-        {isHero && (
-          <button
-            type="button"
-            className={`search-advanced-toggle ${advanced ? 'on' : ''}`}
-            onClick={() => setAdvanced((v) => !v)}
-          >
-            {advanced ? 'Simple search' : 'Filters'}
-          </button>
-        )}
+        <button
+          type="button"
+          className={`search-advanced-toggle ${advanced ? 'on' : ''}`}
+          onClick={() => {
+            setAdvanced((v) => {
+              if (v) {
+                setMode('entity')
+                setWithinSelected(false)
+              }
+              return !v
+            })
+          }}
+          title="Search filters"
+        >
+          {advanced ? (isHero ? 'Simple search' : 'Less') : isHero ? 'Filters' : '···'}
+        </button>
 
-        {canSearchWithin && (
+        {canSearchWithin && isHero && (
           <label className={`within-line inline ${withinSelected ? 'on' : ''}`}>
             <input
               type="checkbox"
@@ -349,8 +356,6 @@ export function GraphSearch({
             </span>
           </label>
         )}
-
-        {!isHero && <HopQuick store={store} />}
       </div>
 
       {showEntityChips && (

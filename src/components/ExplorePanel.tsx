@@ -5,9 +5,10 @@ interface Props {
   store: OntologyStore
   collapsed: boolean
   onToggleCollapse: () => void
+  onFamilyLayout?: () => void
 }
 
-export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
+export function ExplorePanel({ store, collapsed, onToggleCollapse, onFamilyLayout }: Props) {
   const {
     selectedNode,
     panelMode,
@@ -33,8 +34,12 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
     hopTrail,
     clearPath,
     selectNode,
-    applyHops,
     pathRootId,
+    openFamilyTree,
+    familyDepth,
+    entityKind,
+    viewMode,
+    config,
   } = store
 
   const rootLabel =
@@ -100,6 +105,16 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
     selectedNode.type !== 'relation' &&
     selectedNode.type !== 'literal' &&
     !selectedNode.id.startsWith('literal:')
+
+  const looksLikePerson =
+    canExpandNode &&
+    config.source === 'wikidata' &&
+    (entityKind === 'person' ||
+      viewMode === 'family' ||
+      !!selectedNode.__familyRole ||
+      /human|person|actor|actress|singer|politician/i.test(
+        `${selectedNode.classes?.join(' ') ?? ''} ${selectedNode.label}`,
+      ))
 
   return (
     <aside className="inspector">
@@ -182,10 +197,9 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
 
       {canExpandNode && panelMode === 'relations' && (
         <div className="hop-recipes node-explore">
-          <p className="hop-path-kicker">Attached to this node</p>
           <p className="node-explore-hint">
-            Next hops grow from <strong>{selectedNode.label}</strong>. Use depth or load
-            everything linked here.
+            Connections for <strong>{selectedNode.label}</strong> load below. Open a relation to
+            add neighbors, or load everything linked to this node onto the graph.
           </p>
           <div className="hop-recipe-row">
             <button
@@ -193,34 +207,17 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
               className="chip primary-chip"
               disabled={loading}
               onClick={() => void expandNode('both', { all: true, steps: 1 })}
-              title="Pull all properties and many values attached to this node"
+              title="Pull all properties and values onto the graph"
             >
-              Show all attached
+              Show on graph
             </button>
-          </div>
-          <p className="hop-path-kicker">Next hops · depth</p>
-          <div className="hop-recipe-row">
-            {([1, 2, 3] as const).map((d) => (
-              <button
-                key={d}
-                type="button"
-                className="chip"
-                disabled={loading}
-                onClick={() => void expandNode('both', { steps: d })}
-                title={`Grow ${d} hop${d === 1 ? '' : 's'} from this node`}
-              >
-                Depth {d}
-              </button>
-            ))}
-          </div>
-          <div className="hop-recipe-row">
             <button
               type="button"
               className="chip"
               disabled={loading}
               onClick={() => void expandNode('out', { steps: 1 })}
             >
-              Out only
+              Outgoing
             </button>
             <button
               type="button"
@@ -228,38 +225,44 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse }: Props) {
               disabled={loading}
               onClick={() => void expandNode('in', { steps: 1 })}
             >
-              In only
-            </button>
-            <button
-              type="button"
-              className="chip"
-              disabled={loading}
-              onClick={() => void expandNode('both', { steps: 1, all: true })}
-              title="One hop, full property list"
-            >
-              Full · 1 hop
+              Incoming
             </button>
           </div>
-          <p className="hop-path-kicker">Seed hops</p>
-          <div className="hop-recipe-row">
-            {[1, 2, 3, 4, 5].map((n) => (
+          {looksLikePerson && (
+            <div className="hop-recipe-row">
               <button
-                key={n}
                 type="button"
-                className="chip"
+                className="chip family-tree-chip"
                 disabled={loading}
-                onClick={() => void applyHops(n, 'both')}
+                onClick={() =>
+                  void openFamilyTree(familyDepth, selectedNode.id).then(() =>
+                    onFamilyLayout?.(),
+                  )
+                }
+                title="Open a multi-generation family tree rooted on this person"
               >
-                {n}
+                Expand family tree
               </button>
-            ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {canExpandNode && panelMode === 'details' && looksLikePerson && (
+        <div className="hop-recipes node-explore compact-family">
+          <div className="hop-recipe-row">
             <button
               type="button"
-              className="chip"
-              disabled={loading || store.appliedHopDepth <= 0}
-              onClick={() => store.shrinkHops(1)}
+              className="chip family-tree-chip"
+              disabled={loading}
+              onClick={() =>
+                void openFamilyTree(familyDepth, selectedNode.id).then(() =>
+                  onFamilyLayout?.(),
+                )
+              }
+              title="Open a multi-generation family tree rooted on this person"
             >
-              −1
+              Expand family tree
             </button>
           </div>
         </div>

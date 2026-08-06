@@ -144,7 +144,7 @@ const initialState: ExploreState = {
   entityKind: 'other',
   expandedFacets: [],
   viewMode: 'dossier',
-  familyDepth: 3,
+  familyDepth: 4,
   imdbUrl: null,
 }
 
@@ -450,16 +450,15 @@ export function useOntologyStore() {
   )
 
   const openFamilyTree = useCallback(
-    async (depth?: number) => {
-      const seed = state.pathRootId || state.config.seedUri
-      if (!seed) return
-      if (state.entityKind !== 'person') {
-        dispatch({
-          type: 'SET_ERROR',
-          error: 'Family tree is available for people only',
-        })
-        return
-      }
+    async (depth?: number, fromUri?: string) => {
+      const seed =
+        fromUri ||
+        state.selectedNodeId ||
+        state.pathRootId ||
+        state.config.seedUri
+      if (!seed || seed.startsWith('literal:') || seed.startsWith('relhub:')) return
+
+      // Allow from any person node — seed graph or family view
       const d = depth ?? state.familyDepth
       const gen = ++selectGen.current
       dispatch({ type: 'SET_FAMILY_DEPTH', depth: d })
@@ -472,6 +471,15 @@ export function useOntologyStore() {
         const tree = await fetchFamilyTree(state.config.endpoint, seed, d)
         if (gen !== selectGen.current) return
         dispatch({
+          type: 'SET_CONFIG',
+          config: {
+            ...state.config,
+            seedUri: seed,
+            seedLabel: tree.nodes.find((n) => n.id === seed)?.label || state.config.seedLabel,
+            startMode: 'resource',
+          },
+        })
+        dispatch({
           type: 'RESET_GRAPH',
           graph: { nodes: tree.nodes, links: tree.links },
           seedId: seed,
@@ -483,6 +491,7 @@ export function useOntologyStore() {
         dispatch({ type: 'SET_APPLIED_HOPS', depth: d })
         dispatch({ type: 'SET_ENTITY_KIND', kind: 'person' })
         dispatch({ type: 'SET_PANEL', mode: 'details' })
+        dispatch({ type: 'SELECT_NODE', id: seed })
       } catch (err) {
         if (gen !== selectGen.current) return
         dispatch({
@@ -496,10 +505,9 @@ export function useOntologyStore() {
       }
     },
     [
+      state.selectedNodeId,
       state.pathRootId,
-      state.config.seedUri,
-      state.config.endpoint,
-      state.entityKind,
+      state.config,
       state.familyDepth,
     ],
   )
@@ -750,7 +758,7 @@ export function useOntologyStore() {
             parentId,
             predicate,
             direction,
-            40,
+            60,
           )
           if (gen !== selectGen.current) return
           dispatch({ type: 'SET_NEIGHBORS', neighbors })
@@ -969,9 +977,9 @@ export function useOntologyStore() {
             direction,
             depth,
             {
-              maxSubjects: depth === 1 ? 1 : 6,
-              predsPerSubject: direction === 'both' ? 3 : 4,
-              neighborsPerPred: depth === 1 ? 5 : 3,
+              maxSubjects: depth === 1 ? 1 : 4,
+              predsPerSubject: direction === 'both' ? 2 : 3,
+              neighborsPerPred: depth === 1 ? 3 : 2,
             },
           )
 
@@ -1116,15 +1124,16 @@ export function useOntologyStore() {
             direction,
             depth,
             {
-              maxSubjects: s === 1 ? 1 : all ? 8 : 4,
+              maxSubjects: s === 1 ? 1 : all ? 6 : 3,
+              // “all” = every relation type we know + many values on each
               predsPerSubject: all
                 ? direction === 'both'
-                  ? 14
-                  : 18
+                  ? 48
+                  : 56
                 : direction === 'both'
-                  ? 5
-                  : 7,
-              neighborsPerPred: all ? 24 : 6,
+                  ? 4
+                  : 5,
+              neighborsPerPred: all ? 40 : 4,
             },
           )
 
