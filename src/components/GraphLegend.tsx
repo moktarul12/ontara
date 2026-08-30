@@ -1,55 +1,33 @@
-import { HOP_STYLE } from '../utils/nodeKind'
-import { CLUSTER_PALETTE } from '../services/ontologyHops'
-
-/** Simple legend for the proper KG model. */
+/** How to read Ontopedian's own atlas, not a generic box graph. */
 export function GraphLegend() {
   return (
-    <aside className="graph-legend" aria-label="Graph legend">
-      <p className="legend-title">How to read this map</p>
+    <aside className="graph-legend atlas-legend" aria-label="Graph legend">
+      <p className="legend-title">Ontopedian atlas</p>
       <ul>
         <li>
-          <span
-            className="legend-swatch"
-            style={{ background: '#fff8eb', borderColor: '#c07818' }}
-          />
-          <span>Focus person or title</span>
+          <span className="legend-shape oval" />
+          <span>Person / focus</span>
         </li>
         <li>
-          <span
-            className="legend-swatch pill"
-            style={{ background: CLUSTER_PALETTE[0].fill, borderColor: CLUSTER_PALETTE[0].border }}
-          />
-          <span>Link type (e.g. child, cast)</span>
+          <span className="legend-shape tag" />
+          <span>Link type (child, cast…)</span>
         </li>
         <li>
-          <span
-            className="legend-swatch"
-            style={{
-              background: '#ffffff',
-              borderColor: CLUSTER_PALETTE[0].border,
-            }}
-          />
-          <span>Related person / place / work</span>
+          <span className="legend-shape hex" />
+          <span>Place</span>
         </li>
-      </ul>
-      <p className="legend-title spaced">Distance from focus</p>
-      <ul>
-        {([0, 1, 2, 3] as const).map((h) => (
-          <li key={h}>
-            <span
-              className="legend-swatch thin"
-              style={{
-                background: HOP_STYLE[h].fill,
-                borderColor: HOP_STYLE[h].border,
-              }}
-            />
-            <span>{HOP_STYLE[h].label}</span>
-          </li>
-        ))}
+        <li>
+          <span className="legend-shape barrel" />
+          <span>Work / film</span>
+        </li>
+        <li>
+          <span className="legend-shape diamond" />
+          <span>Topic</span>
+        </li>
       </ul>
       <p className="legend-note">
-        Click a name for a few more links on the map and full details on the right. Use Family tree
-        or Movie credits for a focused layout. Arrow heads show direction.
+        Petals = how someone is linked. Click a name to glow it and pull every connection type
+        onto the map. Tree / Pedigree / Cascade for family trees.
       </p>
     </aside>
   )

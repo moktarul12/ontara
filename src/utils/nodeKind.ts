@@ -21,7 +21,7 @@ export function kindOf(node: GraphNode): NodeKind {
   if (/human|person|actor|director|writer|composer|singer/.test(blob)) return 'person'
   if (/film|movie|work|book|album|series|television|song/.test(blob)) return 'work'
   if (/character|fictional/.test(blob)) return 'character'
-  if (/organisation|organization|company|studio|band/.test(blob)) return 'org'
+  if (/organisation|organization|company|studio|band|business|corporation|enterprise|retailer|chain/.test(blob)) return 'org'
   if (/city|country|place|location|geographic|village/.test(blob)) return 'place'
   if (/genre|concept|award|event|prize/.test(blob)) return 'concept'
   return 'entity'
@@ -90,16 +90,24 @@ export const KIND_STYLE: Record<
   NodeKind,
   { fill: string; border: string; text: string; shape: string; label: string }
 > = {
-  work: { fill: '#eef4fb', border: '#2a6fad', text: '#1a2332', shape: 'round-rectangle', label: 'Work' },
-  person: { fill: '#e8f6f4', border: '#0d7a72', text: '#1a2332', shape: 'round-rectangle', label: 'Person' },
-  character: { fill: '#faf3e8', border: '#c07818', text: '#1a2332', shape: 'round-rectangle', label: 'Character' },
-  place: { fill: '#f5f3e8', border: '#8a7a30', text: '#1a2332', shape: 'round-rectangle', label: 'Place' },
-  org: { fill: '#eef0f6', border: '#4a5a8a', text: '#1a2332', shape: 'round-rectangle', label: 'Org' },
-  concept: { fill: '#f8eef2', border: '#a84868', text: '#1a2332', shape: 'round-rectangle', label: 'Topic' },
-  literal: { fill: '#ffffff', border: '#0d7a72', text: '#1a2332', shape: 'round-rectangle', label: 'Fact' },
-  class: { fill: '#eef4fb', border: '#2a6fad', text: '#1a2332', shape: 'round-rectangle', label: 'Type' },
-  relation: { fill: '#d8f0ec', border: '#0d7a72', text: '#0a3d3a', shape: 'round-rectangle', label: 'Link type' },
+  work: { fill: '#e8f0fa', border: '#2a6fad', text: '#1a2332', shape: 'barrel', label: 'Work' },
+  person: { fill: '#e5f4f2', border: '#0d7a72', text: '#1a2332', shape: 'ellipse', label: 'Person' },
+  character: { fill: '#faf3e8', border: '#c07818', text: '#1a2332', shape: 'star', label: 'Character' },
+  place: { fill: '#f4f0dc', border: '#8a7a30', text: '#1a2332', shape: 'hexagon', label: 'Place' },
+  org: { fill: '#eceef6', border: '#4a5a8a', text: '#1a2332', shape: 'octagon', label: 'Org' },
+  concept: { fill: '#f8eef2', border: '#a84868', text: '#1a2332', shape: 'diamond', label: 'Topic' },
+  literal: { fill: '#fffdf8', border: '#0d7a72', text: '#1a2332', shape: 'bottom-round-rectangle', label: 'Fact' },
+  class: { fill: '#eef4fb', border: '#2a6fad', text: '#1a2332', shape: 'pentagon', label: 'Type' },
+  relation: { fill: '#cfeae4', border: '#0d7a72', text: '#0a3d3a', shape: 'round-tag', label: 'Link type' },
   entity: { fill: '#f4f6f8', border: '#7a8494', text: '#1a2332', shape: 'round-rectangle', label: 'Entity' },
+}
+
+/** Cytoscape node shape for Ontopedian's atlas (not a generic box graph). */
+export function atlasShape(node: GraphNode, root?: boolean): string {
+  if (root) return 'ellipse'
+  if (node.type === 'relation') return 'round-tag'
+  if (node.type === 'literal') return 'bottom-round-rectangle'
+  return KIND_STYLE[kindOf(node)].shape
 }
 
 function clip(s: string, max: number) {
@@ -109,7 +117,7 @@ function clip(s: string, max: number) {
 }
 
 /**
- * Readable canvas labels — title + kind for people/works, short chips for properties.
+ * Readable canvas labels — entity name on resources; relation/literal keep extra context.
  */
 export function informativeCard(
   node: GraphNode,
@@ -153,13 +161,13 @@ export function informativeCard(
       ? clip(node.classes?.[0] || typeLabel, 26)
       : typeLabel
 
-  const label = `${title}\n${subtitle}`
-  const longest = Math.max(title.length, subtitle.length)
+  const label = isLit ? `${title}\n${subtitle}` : title
+  const longest = isLit ? Math.max(title.length, subtitle.length) : title.length
   const width = Math.max(
     root ? 140 : isLit ? 92 : 108,
     Math.min(longest * 7 + (root ? 28 : 20), root ? 192 : 148),
   )
-  const height = root ? 50 : isLit ? 42 : 46
+  const height = root ? (isLit ? 50 : 40) : isLit ? 42 : 38
 
   return {
     label,
@@ -233,5 +241,5 @@ export function labelBoxSize(
   return { label: c.label, width: c.width, height: c.height, textMax: c.textMax }
 }
 
-export const HOP_RADIUS = [0, 210, 360, 500, 620, 730] as const
-export const HUB_RADIUS_FACTOR = 0.58
+export const HOP_RADIUS = [0, 228, 390, 540, 670, 790] as const
+export const HUB_RADIUS_FACTOR = 0.52

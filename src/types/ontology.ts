@@ -65,6 +65,27 @@ export interface ConnectedNode {
   selected?: boolean
 }
 
+/** Rich search result with Wikidata category + facts. */
+export interface SearchHitDetail extends ConnectedNode {
+  kind: 'person' | 'org' | 'work' | 'place' | 'entity'
+  categoryLabel: string
+  description?: string
+  meta?: string
+  qid?: string
+}
+
+export type SearchCategoryFilter =
+  | { type: 'all' }
+  | { type: 'kind'; kind: SearchHitDetail['kind'] }
+  | { type: 'category'; label: string }
+
+export interface SearchCategoryChip {
+  id: string
+  label: string
+  count: number
+  filter: SearchCategoryFilter
+}
+
 export interface GraphData {
   nodes: GraphNode[]
   links: GraphLink[]
@@ -285,7 +306,7 @@ export function dataPropertyUriForSource(
 
 export const SEARCH_EXAMPLES_WIKIDATA = [
   { label: 'Amitabh Bachchan', uri: 'http://www.wikidata.org/entity/Q9570' },
-  { label: 'Sholay', uri: 'http://www.wikidata.org/entity/Q152819' },
+  { label: 'Sholay', uri: 'http://www.wikidata.org/entity/Q949228' },
   { label: 'The Dark Knight', uri: 'http://www.wikidata.org/entity/Q163872' },
   { label: 'Bohemian Rhapsody', uri: 'http://www.wikidata.org/entity/Q187745' },
   { label: 'Apple Inc.', uri: 'http://www.wikidata.org/entity/Q312' },
@@ -331,6 +352,36 @@ export const SEARCH_TYPE_SCOPES = SEARCH_TYPE_SCOPES_WIKIDATA
 export const SEARCH_EXAMPLES = SEARCH_EXAMPLES_WIKIDATA
 
 export const PRESET_SEEDS = SEARCH_EXAMPLES_DBPEDIA
+
+export type GuidedJourneyTab =
+  | 'graph'
+  | 'family'
+  | 'movie'
+  | 'business'
+  | 'timeline'
+  | 'compare'
+
+export type GuidedJourneyPostOpen = 'applyHops2' | 'pathMode'
+
+export interface GuidedJourney {
+  id: string
+  title: string
+  blurb: string
+  source: SparqlSourceId
+  seedUri: string
+  seedLabel: string
+  defaultTab?: GuidedJourneyTab
+  postOpen?: GuidedJourneyPostOpen
+  /** For connect-two journey: suggested target entity */
+  pathTargetUri?: string
+  pathTargetLabel?: string
+  /** Related entity chips shown after open */
+  relatedChips?: { label: string; uri: string }[]
+}
+
+export const GUIDED_JOURNEYS: GuidedJourney[] = [
+  
+]
 
 export const RDFS_SUBCLASS = 'http://www.w3.org/2000/01/rdf-schema#subClassOf'
 export const WDT_INSTANCE_OF = 'http://www.wikidata.org/prop/direct/P31'

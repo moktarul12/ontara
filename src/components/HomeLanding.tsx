@@ -11,7 +11,7 @@ export function HomeLanding({ store, onChangeSource }: Props) {
   const source = store.config.source
 
   return (
-    <section className="home" aria-label="Ontara home">
+    <section className="home" aria-label="Ontopedian home">
       <div className="home-sky" aria-hidden>
         <span className="home-orb home-orb-a" />
         <span className="home-orb home-orb-b" />
@@ -21,7 +21,7 @@ export function HomeLanding({ store, onChangeSource }: Props) {
       <header className="home-top">
         <div className="brand brand-home">
           <span className="brand-mark" aria-hidden />
-          <span className="brand-name">Ontara</span>
+          <span className="brand-name">Ontopedian</span>
         </div>
         <div className="source-toggle" role="group" aria-label="Knowledge source">
           {SPARQL_SOURCES.map((s) => (
@@ -40,7 +40,7 @@ export function HomeLanding({ store, onChangeSource }: Props) {
 
       <div className="home-hero">
         <h1 className="home-title">
-          Ontara
+          Ontopedian
           <span className="home-title-em"> map what connects</span>
         </h1>
         <p className="home-lede">

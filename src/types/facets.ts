@@ -154,6 +154,9 @@ export const ORG_FACETS: KnowledgeFacet[] = [
       { predicate: `${WDT}P452`, direction: 'out', limit: 4, label: 'industry' },
       { predicate: `${WDT}P159`, direction: 'out', limit: 3, label: 'headquarters' },
       { predicate: `${WDT}P17`, direction: 'out', limit: 3, label: 'country' },
+      { predicate: `${WDT}P571`, direction: 'out', limit: 2, label: 'inception' },
+      { predicate: `${WDT}P1128`, direction: 'out', limit: 4, label: 'employees' },
+      { predicate: `${WDT}P2139`, direction: 'out', limit: 4, label: 'revenue' },
     ],
   },
 ]

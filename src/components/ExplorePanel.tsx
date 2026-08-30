@@ -35,8 +35,7 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse, onFamilyLayou
     clearPath,
     selectNode,
     pathRootId,
-    openFamilyTree,
-    familyDepth,
+    expandFamilyTree,
     entityKind,
     viewMode,
     config,
@@ -235,11 +234,11 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse, onFamilyLayou
                 className="chip family-tree-chip"
                 disabled={loading}
                 onClick={() =>
-                  void openFamilyTree(familyDepth, selectedNode.id).then(() =>
+                  void expandFamilyTree(selectedNode.id).then(() =>
                     onFamilyLayout?.(),
                   )
                 }
-                title="Open a multi-generation family tree rooted on this person"
+                title="Merge this person’s kinship into the graph (keeps existing nodes)"
               >
                 Expand family tree
               </button>
@@ -256,11 +255,11 @@ export function ExplorePanel({ store, collapsed, onToggleCollapse, onFamilyLayou
               className="chip family-tree-chip"
               disabled={loading}
               onClick={() =>
-                void openFamilyTree(familyDepth, selectedNode.id).then(() =>
+                void expandFamilyTree(selectedNode.id).then(() =>
                   onFamilyLayout?.(),
                 )
               }
-              title="Open a multi-generation family tree rooted on this person"
+              title="Merge this person’s kinship into the graph (keeps existing nodes)"
             >
               Expand family tree
             </button>

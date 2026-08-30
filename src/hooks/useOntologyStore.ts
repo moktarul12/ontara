@@ -25,6 +25,7 @@ import * as wd from '../services/wikidata'
 import {
   expandEntityHopLayer,
   expandKnowledgeFacet,
+  fetchFamilyBranch,
   fetchFamilyTree,
   fetchImdbOntology,
   fetchOntologyKnowledgeGraph,
@@ -35,6 +36,7 @@ import {
 } from '../services/ontologyHops'
 import type { FacetId } from '../types/facets'
 import { findShortestPath, type HopTrailStep, type PathStep } from '../utils/graphPath'
+import { restoreGraphFromSnapshot, type GraphSnapshot } from '../utils/graphSnapshot'
 
 type PanelMode = 'idle' | 'relations' | 'neighbors' | 'details' | 'search'
 
@@ -74,6 +76,9 @@ interface ExploreState {
   familyDepth: number
   /** IMDb.com URL when P345 is known (title/name). */
   imdbUrl: string | null
+  /** Path finder: pick a second entity to connect. */
+  pathMode: 'off' | 'pickTarget'
+  pathFromId: string | null
 }
 
 type Action =
@@ -118,6 +123,17 @@ type Action =
   | { type: 'SET_VIEW_MODE'; mode: 'dossier' | 'family' | 'imdb' }
   | { type: 'SET_FAMILY_DEPTH'; depth: number }
   | { type: 'SET_IMDB_URL'; url: string | null }
+  | { type: 'SET_PATH_MODE'; mode: 'off' | 'pickTarget'; fromId?: string | null }
+  | {
+      type: 'RESTORE_SNAPSHOT'
+      graph: GraphData
+      config: Partial<OntologyConfig>
+      seedId: string
+      entityKind: EntityKind
+      appliedHopDepth: number
+      expandedFacets: FacetId[]
+      selectedNodeId: string | null
+    }
 
 const initialState: ExploreState = {
   config: { ...DEFAULT_CONFIG },
@@ -146,6 +162,8 @@ const initialState: ExploreState = {
   viewMode: 'dossier',
   familyDepth: 4,
   imdbUrl: null,
+  pathMode: 'off',
+  pathFromId: null,
 }
 
 function reducer(state: ExploreState, action: Action): ExploreState {
@@ -210,6 +228,8 @@ function reducer(state: ExploreState, action: Action): ExploreState {
         expandedFacets: [],
         viewMode: 'dossier',
         imdbUrl: null,
+        pathMode: 'off',
+        pathFromId: null,
       }
     case 'SELECT_NODE':
       return {
@@ -357,6 +377,41 @@ function reducer(state: ExploreState, action: Action): ExploreState {
       }
     case 'SET_IMDB_URL':
       return { ...state, imdbUrl: action.url }
+    case 'SET_PATH_MODE':
+      return {
+        ...state,
+        pathMode: action.mode,
+        pathFromId: action.fromId ?? state.pathFromId,
+      }
+    case 'RESTORE_SNAPSHOT':
+      return {
+        ...state,
+        config: { ...state.config, ...action.config },
+        graph: action.graph,
+        selectedNodeId: action.selectedNodeId ?? action.seedId,
+        pathRootId: action.seedId,
+        activeRelation: null,
+        relationTypes: [],
+        neighbors: [],
+        selectedNeighborUris: new Set(),
+        panelMode: 'relations',
+        highlightedLinkId: null,
+        lastExpandMessage: 'Restored saved map',
+        graphEpoch: state.graphEpoch + 1,
+        pathNodeIds: [],
+        pathLinkIds: [],
+        pathSteps: [],
+        hopTrail: [],
+        appliedHopDepth: action.appliedHopDepth,
+        entityKind: action.entityKind,
+        expandedFacets: action.expandedFacets,
+        viewMode: 'dossier',
+        imdbUrl: null,
+        pathMode: 'off',
+        pathFromId: null,
+        error: null,
+        loading: false,
+      }
     default:
       return state
   }
@@ -458,7 +513,7 @@ export function useOntologyStore() {
         state.config.seedUri
       if (!seed || seed.startsWith('literal:') || seed.startsWith('relhub:')) return
 
-      // Allow from any person node — seed graph or family view
+      // Fresh pedigree from horizon / depth control — replaces canvas
       const d = depth ?? state.familyDepth
       const gen = ++selectGen.current
       dispatch({ type: 'SET_FAMILY_DEPTH', depth: d })
@@ -509,6 +564,71 @@ export function useOntologyStore() {
       state.pathRootId,
       state.config,
       state.familyDepth,
+    ],
+  )
+
+  /** Merge kinship around a person — keeps the rest of the graph. */
+  const expandFamilyTree = useCallback(
+    async (fromUri?: string, depth?: number) => {
+      const seed =
+        fromUri ||
+        state.selectedNodeId ||
+        state.pathRootId ||
+        state.config.seedUri
+      if (!seed || seed.startsWith('literal:') || seed.startsWith('relhub:')) return
+
+      const d = Math.max(1, Math.min(2, depth ?? Math.min(2, state.familyDepth)))
+      const gen = ++selectGen.current
+      dispatch({
+        type: 'SET_LOADING',
+        loading: true,
+        message: `Expanding family around focus…`,
+      })
+      try {
+        const branch = await fetchFamilyBranch(state.config.endpoint, seed, d)
+        if (gen !== selectGen.current) return
+        const before = state.graph.nodes.length
+        dispatch({
+          type: 'ADD_NODES',
+          nodes: branch.nodes,
+          links: branch.links,
+          message: branch.message,
+        })
+        dispatch({ type: 'SET_VIEW_MODE', mode: 'family' })
+        dispatch({ type: 'SET_ENTITY_KIND', kind: 'person' })
+        dispatch({ type: 'SELECT_NODE', id: seed })
+        dispatch({ type: 'SET_PANEL', mode: 'details' })
+        if (before === 0) {
+          dispatch({
+            type: 'SET_CONFIG',
+            config: {
+              ...state.config,
+              seedUri: seed,
+              seedLabel:
+                branch.nodes.find((n) => n.id === seed)?.label ||
+                state.config.seedLabel,
+              startMode: 'resource',
+            },
+          })
+        }
+      } catch (err) {
+        if (gen !== selectGen.current) return
+        dispatch({
+          type: 'SET_ERROR',
+          error: err instanceof Error ? err.message : 'Family expand failed',
+        })
+      } finally {
+        if (gen === selectGen.current) {
+          dispatch({ type: 'SET_LOADING', loading: false })
+        }
+      }
+    },
+    [
+      state.selectedNodeId,
+      state.pathRootId,
+      state.config,
+      state.familyDepth,
+      state.graph.nodes.length,
     ],
   )
 
@@ -1339,10 +1459,10 @@ export function useOntologyStore() {
 
       if (linkToSelected && state.selectedNodeId && state.selectedNodeId !== node.uri) {
         links.push({
-          id: linkId(state.selectedNodeId, 'ontara:related', node.uri),
+          id: linkId(state.selectedNodeId, 'ontopedian:related', node.uri),
           source: state.selectedNodeId,
           target: node.uri,
-          predicate: 'ontara:related',
+          predicate: 'ontopedian:related',
           predicateLabel: 'related',
         })
       }
@@ -1421,11 +1541,106 @@ export function useOntologyStore() {
     dispatch({ type: 'CLEAR_EXPAND_MESSAGE' })
   }, [])
 
+  const startPathMode = useCallback(
+    (fromId?: string) => {
+      const from = fromId || state.pathRootId || state.config.seedUri
+      if (!from) return
+      dispatch({ type: 'SET_PATH_MODE', mode: 'pickTarget', fromId: from })
+      dispatch({
+        type: 'ADD_NODES',
+        nodes: [],
+        links: [],
+        message: 'Pick a target entity to find a connection path.',
+      })
+    },
+    [state.pathRootId, state.config.seedUri],
+  )
+
+  const clearPathMode = useCallback(() => {
+    dispatch({ type: 'SET_PATH_MODE', mode: 'off', fromId: null })
+  }, [])
+
+  const findPathBetween = useCallback(
+    (fromId: string, toId: string) => {
+      const path = findShortestPath(state.graph, fromId, toId)
+      if (path && path.steps.length > 1) {
+        dispatch({
+          type: 'SET_PATH',
+          steps: path.steps,
+          nodeIds: path.steps.map((s) => s.nodeId),
+          linkIds: path.linkIds,
+        })
+        dispatch({
+          type: 'ADD_NODES',
+          nodes: [],
+          links: [],
+          message: `Path found · ${path.steps.length - 1} hop${path.steps.length === 2 ? '' : 's'}`,
+        })
+        dispatch({ type: 'SET_PATH_MODE', mode: 'off', fromId: null })
+        return true
+      }
+      dispatch({
+        type: 'ADD_NODES',
+        nodes: [],
+        links: [],
+        message: 'No path on the current map — expand hops or add both entities first.',
+      })
+      return false
+    },
+    [state.graph],
+  )
+
+  const findPathTo = useCallback(
+    (targetUri: string) => {
+      const from = state.pathFromId || state.pathRootId || state.config.seedUri
+      if (!from) return false
+      const onGraph = state.graph.nodes.some((n) => n.id === targetUri)
+      if (!onGraph) {
+        dispatch({
+          type: 'ADD_NODES',
+          nodes: [],
+          links: [],
+          message: 'Target not on map — expand hops or open the target from search while keeping this graph.',
+        })
+        dispatch({ type: 'SET_PATH_MODE', mode: 'off', fromId: null })
+        return false
+      }
+      return findPathBetween(from, targetUri)
+    },
+    [
+      state.pathFromId,
+      state.pathRootId,
+      state.config.seedUri,
+      state.graph.nodes,
+      findPathBetween,
+    ],
+  )
+
+  const restoreGraphSnapshot = useCallback((snap: GraphSnapshot) => {
+    const restored = restoreGraphFromSnapshot(snap)
+    dispatch({
+      type: 'RESTORE_SNAPSHOT',
+      graph: restored.graph,
+      config: {
+        source: restored.source,
+        seedUri: restored.seedUri,
+        seedLabel: restored.seedLabel,
+        startMode: 'resource',
+      },
+      seedId: restored.seedUri,
+      entityKind: restored.entityKind,
+      appliedHopDepth: restored.appliedHopDepth,
+      expandedFacets: restored.expandedFacets,
+      selectedNodeId: restored.selectedNodeId,
+    })
+  }, [])
+
   return {
     ...state,
     selectedNode,
     openKnowledgeGraph,
     openFamilyTree,
+    expandFamilyTree,
     exitFamilyTree,
     setFamilyDepth,
     openImdbView,
@@ -1453,6 +1668,11 @@ export function useOntologyStore() {
     setConfig,
     clearError,
     clearExpandMessage,
+    startPathMode,
+    clearPathMode,
+    findPathBetween,
+    findPathTo,
+    restoreGraphSnapshot,
   }
 }
 

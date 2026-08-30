@@ -912,6 +912,23 @@ export const FAMILY_PRED_LABEL: Record<string, string> = {
   [WDT_SPOUSE]: 'spouse',
   [WDT_CHILD]: 'child',
   [WDT_SIBLING]: 'sibling',
+  parents: 'parents',
+}
+
+/** Collapse father/mother into one hub id key per person. */
+function kinshipHubKey(predicate: string): string {
+  if (predicate === WDT_FATHER || predicate === WDT_MOTHER) return 'parents'
+  return predicate
+}
+
+function kinshipHubLabel(key: string, preds: Set<string>): string {
+  if (key !== 'parents') return FAMILY_PRED_LABEL[key] || localName(key)
+  const hasF = preds.has(WDT_FATHER)
+  const hasM = preds.has(WDT_MOTHER)
+  if (hasF && hasM) return 'parents'
+  if (hasF) return 'father'
+  if (hasM) return 'mother'
+  return 'parents'
 }
 
 export const MAX_FAMILY_NODES = 100
@@ -1008,9 +1025,14 @@ function roleForPredicate(p: string, towardRelative: boolean): FamilyRole {
   return 'sibling'
 }
 
+function familyHubId(subjectUri: string, predicate: string) {
+  return `relhub:out:${kinshipHubKey(predicate)}:${subjectUri}`
+}
+
 /**
  * Multi-generation family tree from a person seed.
- * Ancestors via P22/P25, descendants via P40, lateral P26/P3373 at each band.
+ * Structure: Person → kinship hub (one “child” / “father” chip) → relatives.
+ * Father + mother share one parents hub; reverse child edges are not duplicated.
  */
 export async function wdFamilyTree(
   endpoint: string,
@@ -1025,8 +1047,14 @@ export async function wdFamilyTree(
 
   const nodes = new Map<string, GraphNode>()
   const links = new Map<string, GraphLink>()
+  /** Predicates attached to each parents-hub (for father / mother / parents label). */
+  const hubPreds = new Map<string, Set<string>>()
+  /** Undirected person–person kinship already represented (avoid father+child double hubs). */
+  const kinPair = new Set<string>()
 
-  const ensure = (
+  const pairKey = (a: string, b: string) => (a < b ? `${a}|${b}` : `${b}|${a}`)
+
+  const ensurePerson = (
     uri: string,
     label: string,
     gen: number,
@@ -1035,10 +1063,10 @@ export async function wdFamilyTree(
     if (nodes.size >= MAX_FAMILY_NODES && !nodes.has(uri)) return false
     const prev = nodes.get(uri)
     if (prev) {
-      // Keep role closer to seed if already present; prefer non-sibling when upgrading
       if (role === 'seed' || (prev.__familyRole === 'sibling' && role !== 'sibling')) {
         prev.__familyRole = role
       }
+      if (prev.__familyGen === undefined) prev.__familyGen = gen
       return true
     }
     nodes.set(uri, {
@@ -1056,19 +1084,81 @@ export async function wdFamilyTree(
     return true
   }
 
-  const addLink = (source: string, predicate: string, target: string) => {
-    const id = linkId(source, predicate, target)
-    if (links.has(id)) return
-    links.set(id, {
-      id,
-      source,
-      target,
-      predicate,
-      predicateLabel: FAMILY_PRED_LABEL[predicate] || localName(predicate),
-    })
+  const ensureHub = (
+    subjectUri: string,
+    predicate: string,
+    entityHop: number,
+  ): string => {
+    const key = kinshipHubKey(predicate)
+    const id = familyHubId(subjectUri, predicate)
+    const preds = hubPreds.get(id) ?? new Set<string>()
+    preds.add(predicate)
+    hubPreds.set(id, preds)
+    const label = kinshipHubLabel(key, preds)
+
+    if (!nodes.has(id)) {
+      nodes.set(id, {
+        id,
+        uri: key === 'parents' ? WDT_FATHER : predicate,
+        label,
+        type: 'relation',
+        classes: ['Kinship'],
+        __hopDepth: entityHop,
+        __clusterKey: id,
+        __parentId: subjectUri,
+        __predicate: key === 'parents' ? WDT_FATHER : predicate,
+        __direction: 'out',
+        __pulse: 1,
+      })
+    } else {
+      const hub = nodes.get(id)!
+      hub.label = label
+    }
+    const edgeId = linkId(subjectUri, key, id)
+    if (!links.has(edgeId)) {
+      links.set(edgeId, {
+        id: edgeId,
+        source: subjectUri,
+        target: id,
+        predicate: key === 'parents' ? WDT_FATHER : predicate,
+        predicateLabel: '',
+      })
+    }
+    return id
   }
 
-  ensure(seedUri, seedLabel, 0, 'seed')
+  /** Subject → hub → relative (one hub per kinship type per person). */
+  const linkViaHub = (
+    subjectUri: string,
+    predicate: string,
+    relativeUri: string,
+    entityHop: number,
+  ) => {
+    const pk = pairKey(subjectUri, relativeUri)
+    // One kinship path only — e.g. don’t also add child hub if father hub already links them
+    if (kinPair.has(pk)) return
+    kinPair.add(pk)
+
+    const hubId = ensureHub(subjectUri, predicate, entityHop)
+    const key = kinshipHubKey(predicate)
+    const edgeId = linkId(hubId, key, relativeUri)
+    if (links.has(edgeId)) return
+    links.set(edgeId, {
+      id: edgeId,
+      source: hubId,
+      target: relativeUri,
+      predicate: key === 'parents' ? WDT_FATHER : predicate,
+      predicateLabel: '',
+    })
+    const rel = nodes.get(relativeUri)
+    if (rel && !rel.__parentId) {
+      rel.__parentId = hubId
+      rel.__clusterKey = hubId
+      rel.__predicate = key === 'parents' ? WDT_FATHER : predicate
+    }
+  }
+
+  ensurePerson(seedUri, seedLabel, 0, 'seed')
 
   let ancestorFrontier = [seedUri]
   let descendantFrontier = [seedUri]
@@ -1076,65 +1166,100 @@ export async function wdFamilyTree(
   for (let step = 1; step <= d; step++) {
     if (nodes.size >= MAX_FAMILY_NODES) break
 
-    // Ancestors
     if (ancestorFrontier.length) {
       const up = await wdFamilyEdges(endpoint, ancestorFrontier, ['up'])
       const nextAnc: string[] = []
       for (const row of up) {
-        if (!ensure(row.o, row.oLabel, -step, 'parent')) continue
-        addLink(row.s, row.p, row.o)
+        if (!ensurePerson(row.o, row.oLabel, -step, 'parent')) continue
+        linkViaHub(row.s, row.p, row.o, step)
         nextAnc.push(row.o)
       }
-      // Spouses/siblings of new ancestors
       if (nextAnc.length && nodes.size < MAX_FAMILY_NODES) {
         const side = await wdFamilyEdges(endpoint, nextAnc, ['side'])
         for (const row of side) {
           const role = roleForPredicate(row.p, true)
-          if (!ensure(row.o, row.oLabel, -step, role)) continue
-          addLink(row.s, row.p, row.o)
+          if (!ensurePerson(row.o, row.oLabel, -step, role)) continue
+          linkViaHub(row.s, row.p, row.o, step)
         }
       }
       ancestorFrontier = [...new Set(nextAnc)]
     }
 
-    // Descendants
     if (descendantFrontier.length && nodes.size < MAX_FAMILY_NODES) {
       const down = await wdFamilyEdges(endpoint, descendantFrontier, ['down'])
       const nextDesc: string[] = []
       for (const row of down) {
-        if (!ensure(row.o, row.oLabel, step, 'child')) continue
-        addLink(row.s, row.p, row.o)
+        if (!ensurePerson(row.o, row.oLabel, step, 'child')) continue
+        linkViaHub(row.s, row.p, row.o, step)
         nextDesc.push(row.o)
       }
       if (nextDesc.length && nodes.size < MAX_FAMILY_NODES) {
         const side = await wdFamilyEdges(endpoint, nextDesc, ['side'])
         for (const row of side) {
           const role = roleForPredicate(row.p, true)
-          if (!ensure(row.o, row.oLabel, step, role)) continue
-          addLink(row.s, row.p, row.o)
+          if (!ensurePerson(row.o, row.oLabel, step, role)) continue
+          linkViaHub(row.s, row.p, row.o, step)
         }
       }
       descendantFrontier = [...new Set(nextDesc)]
     }
   }
 
-  // Lateral relations around seed (spouse / siblings at gen 0)
   const seedSide = await wdFamilyEdges(endpoint, [seedUri], ['side'])
   for (const row of seedSide) {
     const role = roleForPredicate(row.p, true)
-    if (!ensure(row.o, row.oLabel, 0, role)) continue
-    addLink(row.s, row.p, row.o)
+    if (!ensurePerson(row.o, row.oLabel, 0, role)) continue
+    linkViaHub(row.s, row.p, row.o, 1)
+  }
+
+  // Drop empty hubs (no values)
+  for (const n of [...nodes.values()]) {
+    if (n.type !== 'relation') continue
+    const kids = [...links.values()].filter((l) => l.source === n.id)
+    if (!kids.length) {
+      nodes.delete(n.id)
+      for (const [lid, l] of [...links.entries()]) {
+        if (l.source === n.id || l.target === n.id) links.delete(lid)
+      }
+    }
   }
 
   const nodeList = [...nodes.values()]
   const linkList = [...links.values()]
-  const capped = nodeList.length >= MAX_FAMILY_NODES
+  const people = nodeList.filter((n) => n.type !== 'relation').length
+  const hubs = nodeList.filter((n) => n.type === 'relation').length
+  const capped = people >= MAX_FAMILY_NODES
   return {
     nodes: nodeList,
     links: linkList,
     message: capped
-      ? `Family tree · depth ${d} · ${nodeList.length} people (capped)`
-      : `Family tree · depth ${d} · ${nodeList.length} people · ${linkList.length} links`,
+      ? `Family atlas · depth ${d} · ${people} people · ${hubs} kinship links (capped)`
+      : `Family atlas · depth ${d} · ${people} people · ${hubs} kinship links`,
+  }
+}
+
+/**
+ * One person’s kinship branch (depth 1–2) for merge-into-existing expand.
+ * Same hub model: Person → child hub → children…
+ */
+export async function wdFamilyBranch(
+  endpoint: string,
+  personUri: string,
+  depth = 1,
+): Promise<{ nodes: GraphNode[]; links: GraphLink[]; message: string }> {
+  const tree = await wdFamilyTree(endpoint, personUri, Math.max(1, Math.min(2, depth)))
+  // Re-tag seed role only on the expanded person; others keep kin roles
+  for (const n of tree.nodes) {
+    if (n.id === personUri && n.type !== 'relation') {
+      n.__familyRole = n.__familyRole === 'seed' ? 'seed' : n.__familyRole
+      n.__pulse = 1
+    }
+  }
+  const people = tree.nodes.filter((n) => n.type !== 'relation').length
+  return {
+    nodes: tree.nodes,
+    links: tree.links,
+    message: `Expanded family around focus · +${people} people in branch`,
   }
 }
 

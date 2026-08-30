@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { GraphLayoutMode } from './KnowledgeGraph'
 
 interface Props {
@@ -38,10 +39,29 @@ export function GraphFooter({
   onAutoArrange,
   onFitView,
   onExportPng,
+  onExportJpg,
   onHome,
   showFamilyLayout = false,
 }: Props) {
   const hasGraph = nodeCount > 0
+  const [downloadOpen, setDownloadOpen] = useState(false)
+  const downloadRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!downloadOpen) return
+    const onDoc = (e: MouseEvent) => {
+      if (!downloadRef.current?.contains(e.target as Node)) setDownloadOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDownloadOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDoc)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [downloadOpen])
 
   return (
     <footer className="graph-footer" aria-label="Canvas toolbar">
@@ -86,46 +106,6 @@ export function GraphFooter({
         <div className="footer-mode-group" role="group" aria-label="Layout">
           <button
             type="button"
-            className={`footer-btn ${layoutMode === 'hops' ? 'on' : ''}`}
-            disabled={!hasGraph}
-            onClick={() => onLayoutMode('hops')}
-            title="Arrange by distance from focus"
-          >
-            Distance
-          </button>
-          <button
-            type="button"
-            className={`footer-btn ${layoutMode === 'orbit' ? 'on' : ''}`}
-            disabled={!hasGraph}
-            onClick={() => onLayoutMode('orbit')}
-            title="Circular layout"
-          >
-            Orbit
-          </button>
-          {showFamilyLayout && (
-            <>
-              <button
-                type="button"
-                className={`footer-btn ${layoutMode === 'family' ? 'on' : ''}`}
-                disabled={!hasGraph}
-                onClick={() => onLayoutMode('family')}
-                title="Pedigree rows — generations left to right"
-              >
-                Pedigree
-              </button>
-              <button
-                type="button"
-                className={`footer-btn ${layoutMode === 'family-cascade' ? 'on' : ''}`}
-                disabled={!hasGraph}
-                onClick={() => onLayoutMode('family-cascade')}
-                title="Cascade — children nest under parents"
-              >
-                Cascade
-              </button>
-            </>
-          )}
-          <button
-            type="button"
             className={`footer-btn ${layoutMode === 'auto' ? 'on' : ''}`}
             disabled={!hasGraph}
             onClick={() => {
@@ -136,19 +116,65 @@ export function GraphFooter({
           >
             Arrange
           </button>
+          {showFamilyLayout && (
+            <button
+              type="button"
+              className={`footer-btn ${layoutMode === 'family-tree' || layoutMode === 'family' || layoutMode === 'family-cascade' ? 'on' : ''}`}
+              disabled={!hasGraph}
+              onClick={() => onLayoutMode('family-tree')}
+              title="Family tree — rearrange as pedigree"
+            >
+              Family tree
+            </button>
+          )}
         </div>
 
         <button type="button" className="footer-btn" disabled={!hasGraph} onClick={onFitView}>
           Fit view
         </button>
-        <button
-          type="button"
-          className="footer-btn"
-          disabled={!hasGraph || !onExportPng}
-          onClick={() => onExportPng?.()}
-        >
-          Save PNG
-        </button>
+
+        <div className="footer-download" ref={downloadRef}>
+          <button
+            type="button"
+            className={`footer-btn footer-download-btn ${downloadOpen ? 'on' : ''}`}
+            disabled={!hasGraph || (!onExportPng && !onExportJpg)}
+            aria-haspopup="menu"
+            aria-expanded={downloadOpen}
+            title="Download the graph as an image"
+            onClick={() => setDownloadOpen((o) => !o)}
+          >
+            Download image
+          </button>
+          {downloadOpen && (
+            <div className="footer-download-menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                className="footer-download-item"
+                disabled={!onExportPng}
+                onClick={() => {
+                  setDownloadOpen(false)
+                  onExportPng?.()
+                }}
+              >
+                PNG — crisp
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className="footer-download-item"
+                disabled={!onExportJpg}
+                onClick={() => {
+                  setDownloadOpen(false)
+                  onExportJpg?.()
+                }}
+              >
+                JPG — smaller
+              </button>
+            </div>
+          )}
+        </div>
+
         <button
           type="button"
           className={`footer-btn ${legendVisible ? 'on' : ''}`}

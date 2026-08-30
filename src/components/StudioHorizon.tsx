@@ -78,7 +78,7 @@ export function StudioHorizon({ store, onChangeSource, onHome, onFamilyLayout }:
         <div className="horizon-brand-search">
           <button type="button" className="horizon-brand" onClick={onHome} title="Home">
             <span className="horizon-orb" aria-hidden />
-            <span className="horizon-word">Ontara</span>
+            <span className="horizon-word">Ontopedian</span>
           </button>
           <div className="horizon-search">
             <GraphSearch store={store} variant="compact" />

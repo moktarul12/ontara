@@ -23,6 +23,7 @@ import {
   PERSON_SEED_FACET_IDS,
   WORK_FACETS,
   WORK_SEED_FACET_IDS,
+  facetById,
   flattenFacetPredicates,
   type FacetId,
 } from '../types/facets'
@@ -694,9 +695,7 @@ export async function expandKnowledgeFacet(
   subjectUri: string,
   facetId: FacetId,
 ): Promise<{ nodes: GraphNode[]; links: GraphLink[]; message: string }> {
-  const facet =
-    PERSON_FACETS.find((f) => f.id === facetId) ||
-    ORG_FACETS.find((f) => f.id === facetId)
+  const facet = facetById(facetId)
   if (!facet) {
     return { nodes: [], links: [], message: 'Unknown facet' }
   }
@@ -737,24 +736,30 @@ export async function expandKnowledgeFacet(
     }
   }
 
-  // Drop empty hubs
+  const links = [...linkMap.values()]
+  const linkSource = (l: GraphLink) =>
+    typeof l.source === 'string' ? l.source : l.source.id
+
+  // Drop empty hubs (no value links leaving the hub)
   for (const n of [...nodeMap.values()]) {
     if (n.type !== 'relation') continue
-    const kids = [...linkMap.values()].filter((l) => l.source === n.id)
+    const kids = links.filter((l) => linkSource(l) === n.id)
     if (!kids.length) {
       nodeMap.delete(n.id)
-      for (const [lid, l] of [...linkMap.entries()]) {
-        if (l.target === n.id || l.source === n.id) linkMap.delete(lid)
+      for (const l of links) {
+        if (l.target === n.id || linkSource(l) === n.id) {
+          linkMap.delete(l.id)
+        }
       }
     }
   }
 
   const nodes = [...nodeMap.values()]
-  const links = [...linkMap.values()]
+  const finalLinks = [...linkMap.values()]
   const values = nodes.filter((n) => n.type !== 'relation').length
   return {
     nodes,
-    links,
+    links: finalLinks,
     message: values
       ? `Facet “${facet.label}” · +${values} entities`
       : `Facet “${facet.label}” · no linked data found`,
@@ -768,7 +773,7 @@ export interface FamilyTreeGraph {
   seedUri: string
 }
 
-/** Multi-generation kinship graph (person–person edges, no hubs). Wikidata primary. */
+/** Multi-generation kinship graph with relation hubs (one “child” chip → many kids). */
 export async function fetchFamilyTree(
   endpoint: string,
   seedUri: string,
@@ -779,6 +784,19 @@ export async function fetchFamilyTree(
   }
   const tree = await wd.wdFamilyTree(endpoint, seedUri, depth)
   return { ...tree, seedUri }
+}
+
+/** Kinship branch to merge into the current graph without wiping it. */
+export async function fetchFamilyBranch(
+  endpoint: string,
+  personUri: string,
+  depth = 1,
+): Promise<FamilyTreeGraph> {
+  if (!isWikidataEndpoint(endpoint)) {
+    throw new Error('Family expand currently requires Wikidata')
+  }
+  const tree = await wd.wdFamilyBranch(endpoint, personUri, depth)
+  return { ...tree, seedUri: personUri }
 }
 
 export interface ImdbOntologyGraph {

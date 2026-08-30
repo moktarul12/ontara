@@ -1,4 +1,4 @@
-# Ontara — map what connects
+# Ontopedian — map what connects
 
 Search-first knowledge graph studio. Open a person, place, film, or company from **Wikidata** (default), **DBpedia**, or **YAGO**, explore relations as a living graph, deepen curated facets, and grow multi-hop neighborhoods.
 
@@ -61,6 +61,30 @@ Optional env vars (defaults work without them):
 ## Deploy on Render
 
 Config is in [`render.yaml`](render.yaml). Build `npm install && npm run build`, start `npm start`, health `/health`.
+
+---
+
+## AI content (OpenAI or Gemini)
+
+Set at least one API key for rich editorial profiles (summary, timeline, history, wiki chapters):
+
+```bash
+# Free option — get a key at https://aistudio.google.com/apikey
+export GEMINI_API_KEY=your-key
+
+# Or OpenAI (requires billing credits)
+export OPENAI_API_KEY=sk-...
+
+npm run dev
+```
+
+On first visit to an entity (e.g. `#/Q9570`), the app calls the LLM and **saves the full response** to:
+
+`data/ai-cache/Q9570.json`
+
+The next load reads from that file instantly — no API call. To regenerate, delete the file or POST with `{ "force": true }` to `/api/ai/entity/Q9570`.
+
+Without a key, a rule-based template fallback is used and still cached.
 
 ---
 
