@@ -42,7 +42,7 @@ export async function fetchFilmographyTable(
       }
     }
     ORDER BY DESC(?year)
-    LIMIT 40
+    LIMIT 200
   `
 
   try {
@@ -83,7 +83,7 @@ export async function fetchFilmographyTable(
       id: 'filmography',
       title: 'Selected filmography',
       columns,
-      rows: tableRows.slice(0, 25),
+      rows: tableRows.slice(0, 200),
     }
   } catch {
     return null
@@ -114,7 +114,7 @@ export async function fetchAwardsTable(
       }
     }
     ORDER BY DESC(?year)
-    LIMIT 30
+    LIMIT 80
   `
 
   try {

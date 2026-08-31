@@ -3,20 +3,18 @@ import {
   visibleOverviewSections,
   type OverviewSectionId,
 } from '../../services/overviewSections'
-import { UnderstandSummary } from '../composition/UnderstandSummary'
 import { buildPersonDashboardData } from '../../services/personDashboardBuilder'
 import { buildOrgDashboardData } from '../../services/orgDashboardBuilder'
 import { buildWorkDashboardData } from '../../services/workDashboardBuilder'
 import { HorizontalTimeline } from './HorizontalTimeline'
 import { TopicCardGrid } from './TopicCardGrid'
-import { MultiSourceFacts, WikiArticlePreview } from './MultiSourceBlocks'
-import { buildTopicCards, renderSummaryFactsPreview } from './OverviewSectionBodies'
+import { WikiArticlePreview } from './MultiSourceBlocks'
+import { buildTopicCards } from './OverviewSectionBodies'
 import { timelineNarrativeIntro } from '../../utils/timelineEnrich'
 
 export function OverviewSummaryHub({
   dossier,
   onSection,
-  enriching = false,
 }: {
   dossier: EntityDossier
   onSection: (id: OverviewSectionId) => void
@@ -41,26 +39,85 @@ export function OverviewSummaryHub({
     dossier.kind === 'org' ? 'Products & brands' : dossier.kind === 'work' ? 'Related works' : 'Notable works'
 
   return (
-    <div className="ke-overview-hub">
-      <UnderstandSummary dossier={dossier} imageUrl={dossier.hero.imageUrl} loading={enriching} />
+    <div className="corpus-topic-body" id="ke-section-overview">
+      {workData && workData.cast.length > 0 && (
+        <section className="ke-panel corpus-cast-panel" id="cat-cast">
+          <header className="ke-panel-head">
+            <h2>Cast ({workData.cast.length})</h2>
+            <button type="button" className="ke-link-btn" onClick={() => onSection('cast')}>
+              View all →
+            </button>
+          </header>
+          <div className="corpus-cast-rail">
+            {workData.cast.slice(0, 10).map((member, i) => (
+              <article key={`${member.name}-${i}`} className="corpus-cast-member">
+                {member.imageUrl ? (
+                  <img src={member.imageUrl} alt="" className="corpus-cast-photo" loading="lazy" />
+                ) : (
+                  <div className="corpus-cast-avatar" aria-hidden>
+                    {member.name.slice(0, 1)}
+                  </div>
+                )}
+                <strong>{member.name}</strong>
+                {member.role && <span>{member.role}</span>}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
 
-      <section className="ke-panel">
-        <header className="ke-panel-head">
-          <h2>Key facts</h2>
-        </header>
-        {renderSummaryFactsPreview(dossier, 4)}
-      </section>
+      {orgData && orgData.products.length > 0 && (
+        <section className="ke-panel" id="cat-products">
+          <header className="ke-panel-head">
+            <h2>What {dossier.label} does</h2>
+            <button type="button" className="ke-link-btn" onClick={() => onSection('products')}>
+              View all →
+            </button>
+          </header>
+          <div className="corpus-product-grid">
+            {orgData.products.map((p) => (
+              <span key={p.name} className="corpus-product-chip">
+                {p.name}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
 
-      <MultiSourceFacts dossier={dossier} />
+      {dossier.summary.topAwards.length > 0 && (
+        <section className="ke-panel" id="cat-honours">
+          <header className="ke-panel-head">
+            <h2>Awards &amp; recognition</h2>
+            <button type="button" className="ke-link-btn" onClick={() => onSection('honours')}>
+              View all →
+            </button>
+          </header>
+          <ul className="corpus-award-list">
+            {dossier.summary.topAwards.slice(0, 6).map((a, i) => (
+              <li key={`${a.name}-${i}`}>
+                <span aria-hidden>★</span>
+                <div>
+                  <strong>{a.name}</strong>
+                  {a.year && <em>{a.year}</em>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
-      <HorizontalTimeline
-        items={timeline}
-        narrative={timeline.length ? timelineNarrativeIntro(dossier, timeline) : undefined}
-        onSeeAll={() => onSection('timeline')}
-      />
+      {timeline.length > 0 && (
+        <div id="ke-section-timeline">
+          <HorizontalTimeline
+            items={timeline}
+            narrative={timelineNarrativeIntro(dossier, timeline)}
+            onSeeAll={() => onSection('timeline')}
+          />
+        </div>
+      )}
 
       {works.length > 0 && (
-        <section className="ke-panel">
+        <section className="ke-panel" id="cat-works">
           <header className="ke-panel-head">
             <h2>{worksTitle}</h2>
             <button

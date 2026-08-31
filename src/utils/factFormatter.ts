@@ -96,11 +96,27 @@ export function formatFactDisplay(label: string, values: string[]): FormattedFac
     return { label, display: '—', rawValues: values }
   }
 
-  if (key === 'revenue' || key === 'production budget' || key === 'box office') {
+  if (
+    key === 'revenue' ||
+    key === 'net profit' ||
+    key === 'market capitalization' ||
+    key === 'production budget' ||
+    key === 'box office'
+  ) {
     const top = pickTopNumeric(clean, key === 'revenue' ? 3 : 1)
     const formatted = top.map(formatRevenue)
+    const displayLabel =
+      key === 'production budget'
+        ? 'Budget'
+        : key === 'box office'
+          ? 'Box Office'
+          : key === 'net profit'
+            ? 'Net Income'
+            : key === 'market capitalization'
+              ? 'Market Cap'
+              : label
     return {
-      label: key === 'production budget' ? 'Budget' : key === 'box office' ? 'Box Office' : label,
+      label: displayLabel,
       display: formatted[0],
       values: key === 'revenue' && formatted.length > 1 ? formatted : undefined,
       rawValues: values,

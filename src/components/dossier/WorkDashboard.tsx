@@ -1,6 +1,5 @@
 import type { EntityDossier } from '../../types/entityDossier'
 import { buildWorkDashboardData } from '../../services/workDashboardBuilder'
-import { UnderstandSummary } from '../composition/UnderstandSummary'
 import { RelatedKnowledge } from '../composition/RelatedKnowledge'
 import { SourcesProvenance } from '../composition/SourcesProvenance'
 
@@ -49,9 +48,7 @@ export function WorkDashboard({
     <div className={`film-dashboard ${mainOnly ? 'is-main-only' : ''}`}>
       <div className={`film-dashboard-grid ${mainOnly ? 'is-main-only' : ''}`}>
         <main className="film-dashboard-main">
-          {!mainOnly && <UnderstandSummary dossier={dossier} imageUrl={dossier.hero.imageUrl} />}
-
-          {data.keyStats.length > 0 && (
+          {!mainOnly && data.keyStats.length > 0 && (
             <section className="film-key-stats kx-fact-highlights" id="cat-facts">
               {data.keyStats.map((s) => (
                 <article key={s.label} className="film-key-stat">
@@ -67,7 +64,7 @@ export function WorkDashboard({
             </section>
           )}
 
-          {dossier.summary.storyBeats.length > 0 && (
+          {!mainOnly && dossier.summary.storyBeats.length > 0 && (
             <section className="film-glance">
               <p className="film-section-label">At a glance</p>
               <div className="film-glance-grid">
@@ -150,7 +147,7 @@ export function WorkDashboard({
               </section>
             )}
 
-            {data.timeline.length > 0 && (
+            {data.timeline.length > 0 && !mainOnly && (
               <section className="film-card" id="cat-timeline">
                 <header className="film-section-head">
                   <h2>Timeline</h2>

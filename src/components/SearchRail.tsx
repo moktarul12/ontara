@@ -140,26 +140,30 @@ export function SearchRail({
           <span className="search-rail-mark" aria-hidden />
           {!collapsed && <span className="search-rail-brand-name">Ontopedian</span>}
         </button>
-        <button
-          type="button"
-          className="bar-toggle"
-          onClick={onToggleCollapse}
-          title={collapsed ? 'Expand panel' : 'Collapse panel'}
-          aria-expanded={!collapsed}
-        >
-          <span className={`chevron ${collapsed ? 'chevron-right' : 'chevron-left'}`} aria-hidden />
-        </button>
+        {onToggleCollapse && (
+          <button
+            type="button"
+            className="bar-toggle"
+            onClick={onToggleCollapse}
+            title={collapsed ? 'Expand panel' : 'Collapse panel'}
+            aria-expanded={!collapsed}
+          >
+            <span className={`chevron ${collapsed ? 'chevron-right' : 'chevron-left'}`} aria-hidden />
+          </button>
+        )}
       </div>
 
       {collapsed ? (
-        <button
-          type="button"
-          className="rail-collapsed-hit"
-          onClick={onToggleCollapse}
-          title="Expand search"
-        >
-          ⌕
-        </button>
+        onToggleCollapse ? (
+          <button
+            type="button"
+            className="rail-collapsed-hit"
+            onClick={onToggleCollapse}
+            title="Expand search"
+          >
+            ⌕
+          </button>
+        ) : null
       ) : (
         <div className="search-rail-body">
           {showJourneys && onLaunchJourney && (

@@ -7,11 +7,12 @@ import {
 import { buildPersonDashboardData } from '../../services/personDashboardBuilder'
 import { buildOrgDashboardData } from '../../services/orgDashboardBuilder'
 import { buildWorkDashboardData } from '../../services/workDashboardBuilder'
-import { UnderstandSummary } from '../composition/UnderstandSummary'
 import { RelatedKnowledge } from '../composition/RelatedKnowledge'
 import { SourcesProvenance } from '../composition/SourcesProvenance'
 import { InfoboxPanel } from './InfoboxPanel'
 import { ExternalLinksPanel, WikipediaArticlePanel, WikipediaSectionPanel } from './WikipediaPanels'
+import { CorpusYearTimeline } from './CorpusYearTimeline'
+import { CorpusDataPanel } from './CorpusDataPanel'
 
 const SOURCE_LABELS: Record<string, string> = {
   wikidata: 'Wikidata',
@@ -188,37 +189,9 @@ function renderPersonSection(
 
   switch (sectionId) {
     case 'ai':
-      return <UnderstandSummary dossier={dossier} imageUrl={dossier.hero.imageUrl} />
+      return null
     case 'facts':
-      return data.highlights.length > 0 ? (
-        <section className="person-glance kx-chapter">
-          <div className="person-glance-grid">
-            {data.highlights.map((h) => (
-              <article key={h.label} className="person-glance-card verified">
-                <span aria-hidden>✦</span>
-                <div>
-                  <em>{h.label}</em>
-                  <strong>{h.value}</strong>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      ) : (
-        <section className="person-glance kx-chapter">
-          <div className="person-glance-grid">
-            {dossier.summary.storyBeats.map((beat) => (
-              <article key={beat.label} className={`person-glance-card ${beat.verified ? 'verified' : ''}`}>
-                <span aria-hidden>{beat.icon}</span>
-                <div>
-                  <em>{beat.label}</em>
-                  <strong>{beat.detail}</strong>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      )
+      return <CorpusDataPanel dossier={dossier} />
     case 'details':
       return (
         <section className="person-card kx-chapter">
@@ -280,24 +253,7 @@ function renderPersonSection(
         </section>
       )
     case 'timeline':
-      return (
-        <section className="person-card kx-chapter">
-          <ol className="person-timeline">
-            {data.timeline.map((m, i) => (
-              <li key={`${m.label}-${i}`}>
-                {m.year && <time>{m.year}</time>}
-                <div>
-                  <strong>{m.label}</strong>
-                  {m.detail && <span>{m.detail}</span>}
-                </div>
-              </li>
-            ))}
-          </ol>
-          <button type="button" className="kx-btn-ghost kx-chapter-action" onClick={onOpenGraph}>
-            View in knowledge graph →
-          </button>
-        </section>
-      )
+      return <CorpusYearTimeline dossier={dossier} />
     case 'family':
       return (
         <section className="person-aside-card kx-chapter kx-chapter-wide">
@@ -334,19 +290,9 @@ function renderOrgSection(sectionId: OverviewSectionId, dossier: EntityDossier, 
 
   switch (sectionId) {
     case 'ai':
-      return <UnderstandSummary dossier={dossier} imageUrl={dossier.hero.imageUrl} />
+      return null
     case 'facts':
-      return (
-        <section className="org-highlights kx-chapter">
-          {data.highlights.map((h) => (
-            <article key={h.label} className="org-highlight-card">
-              <span className="org-highlight-label">{h.label}</span>
-              <strong>{h.value}</strong>
-              {h.hint && <span className="org-highlight-hint">{h.hint}</span>}
-            </article>
-          ))}
-        </section>
-      )
+      return <CorpusDataPanel dossier={dossier} />
     case 'details':
       return dossier.wikipedia?.infobox.length ? (
         <InfoboxPanel
@@ -413,22 +359,7 @@ function renderOrgSection(sectionId: OverviewSectionId, dossier: EntityDossier, 
         </section>
       )
     case 'history':
-      return (
-        <section className="org-card org-history-card kx-chapter">
-          <ol className="org-history-timeline">
-            {data.timeline.map((m, i) => (
-              <li key={`${m.label}-${m.year}-${i}`}>
-                <div className="org-history-dot" aria-hidden />
-                <div className="org-history-body">
-                  {m.year && <time>{m.year}</time>}
-                  <strong>{m.label}</strong>
-                  {m.detail && m.detail !== m.label && <span>{m.detail}</span>}
-                </div>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )
+      return <CorpusYearTimeline dossier={dossier} />
     case 'honours':
       return (
         <section className="org-card org-awards-card kx-chapter">
@@ -459,42 +390,9 @@ function renderWorkSection(sectionId: OverviewSectionId, dossier: EntityDossier,
 
   switch (sectionId) {
     case 'ai':
-      return <UnderstandSummary dossier={dossier} imageUrl={dossier.hero.imageUrl} />
+      return null
     case 'facts':
-      return (
-        <>
-          {data.keyStats.length > 0 && (
-            <section className="film-key-stats kx-chapter">
-              {data.keyStats.map((s) => (
-                <article key={s.label} className="film-key-stat">
-                  <span className="film-key-icon" aria-hidden>
-                    {s.icon}
-                  </span>
-                  <div>
-                    <strong>{s.value}</strong>
-                    <span>{s.label}</span>
-                  </div>
-                </article>
-              ))}
-            </section>
-          )}
-          {dossier.summary.storyBeats.length > 0 && (
-            <section className="film-glance kx-chapter">
-              <div className="film-glance-grid">
-                {dossier.summary.storyBeats.map((beat) => (
-                  <article key={beat.label} className={`film-glance-card ${beat.verified ? 'verified' : ''}`}>
-                    <span aria-hidden>{beat.icon}</span>
-                    <div>
-                      <em>{beat.label}</em>
-                      <strong>{beat.detail}</strong>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </section>
-          )}
-        </>
-      )
+      return <CorpusDataPanel dossier={dossier} />
     case 'details':
       return (
         <section className="film-card kx-chapter">
@@ -549,21 +447,7 @@ function renderWorkSection(sectionId: OverviewSectionId, dossier: EntityDossier,
         </section>
       )
     case 'timeline':
-      return (
-        <section className="film-card kx-chapter">
-          <ol className="film-timeline">
-            {data.timeline.map((m, i) => (
-              <li key={`${m.label}-${i}`}>
-                {m.year && <time>{m.year}</time>}
-                <div>
-                  <strong>{m.label}</strong>
-                  {m.detail && <span>{m.detail}</span>}
-                </div>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )
+      return <CorpusYearTimeline dossier={dossier} />
     case 'related':
       return <RelatedKnowledge dossier={dossier} onOpenGraph={onOpenGraph} />
     case 'sources':

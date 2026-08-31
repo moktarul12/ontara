@@ -76,6 +76,11 @@ export function DossierView({
   enriching,
   overviewSection,
   onOverviewSection,
+  onDossierPatch,
+  contentLanguage,
+  languageOptions,
+  onLanguageChange,
+  languageDisabled,
 }: {
   dossier: EntityDossier
   displayLabel: string
@@ -84,6 +89,11 @@ export function DossierView({
   enriching?: boolean
   overviewSection: OverviewSectionId
   onOverviewSection: (id: OverviewSectionId) => void
+  onDossierPatch?: (patch: (d: EntityDossier) => EntityDossier) => void
+  contentLanguage?: string
+  languageOptions?: { lang: string; label: string }[]
+  onLanguageChange?: (lang: string) => void
+  languageDisabled?: boolean
 }) {
   const [tab, setTab] = useState<DossierTabId>('summary')
 
@@ -116,6 +126,11 @@ export function DossierView({
             onOpenGraph={() => handleLens('graph')}
             onLens={handleLens}
             enriching={enriching}
+            onDossierPatch={onDossierPatch}
+            contentLanguage={contentLanguage}
+            languageOptions={languageOptions}
+            onLanguageChange={onLanguageChange}
+            languageDisabled={languageDisabled}
           />
         ) : null}
       </div>

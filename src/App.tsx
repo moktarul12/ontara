@@ -29,15 +29,17 @@ import {
   exportNodesCsv,
 } from './utils/graphExport'
 import { serializeGraphSnapshot } from './utils/graphSnapshot'
-import { entityFromHash, entityUrisMatch, canonicalEntityUri, hashForEntity, hashForMapSnapshot, parseHash } from './utils/entityUrl'
+import { entityFromHash, entityUrisMatch, canonicalEntityUri, hashForEntity, hashForEntityTab, hashForMapSnapshot, parseHash, entityViewFromHash } from './utils/entityUrl'
 import { kindOf } from './utils/nodeKind'
 import { loadSettings, loadGraphSnapshot, pushHistory, saveGraphSnapshot, saveSettings } from './utils/workspace'
 
 export default function App() {
   const store = useOntologyStore()
-  const hasGraph = store.graph.nodes.length > 0
-  const isResource = store.config.startMode === 'resource' && hasGraph
   const [entityTab, setEntityTab] = useState<EntityTab>('graph')
+  const hasGraph = store.graph.nodes.length > 0
+  const hasSeed = Boolean(store.config.seedUri && store.config.startMode === 'resource')
+  const showEntityPage = hasGraph || (hasSeed && entityTab === 'overview')
+  const isResource = hasSeed && (hasGraph || entityTab === 'overview')
   const [layoutKey, setLayoutKey] = useState(0)
   const [fitKey, setFitKey] = useState(0)
   const [layoutMode, setLayoutMode] = useState<GraphLayoutMode>('auto')
@@ -81,22 +83,35 @@ export default function App() {
       }
     }
     if (parsed?.type === 'entity') {
-      void store.openKnowledgeGraph(parsed.uri)
+      if (parsed.entityView === 'overview') setEntityTab('overview')
+      else if (parsed.entityView === 'graph') setEntityTab('graph')
+      if (parsed.entityView === 'graph') void store.openKnowledgeGraph(parsed.uri)
+      else void store.openEntityOverview(parsed.uri)
     } else {
       const uri = entityFromHash(window.location.hash, store.config.source)
-      if (uri) void store.openKnowledgeGraph(uri)
+      if (uri) void store.openEntityOverview(uri)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
+    if (entityTab === 'overview' && isResource && !fullscreen) {
+      setRailCollapsed(false)
+    }
+  }, [entityTab, isResource, fullscreen])
+
+  useEffect(() => {
     if (!isResource || !store.config.seedUri) return
     if (window.location.hash.includes('/map/')) return
-    const next = hashForEntity(store.config.seedUri, store.config.source)
+    const next = hashForEntityTab(
+      store.config.seedUri,
+      store.config.source,
+      entityTab === 'overview' ? 'overview' : 'graph',
+    )
     if (window.location.hash !== next) {
       window.history.replaceState(null, '', next)
     }
-  }, [isResource, store.config.seedUri, store.config.source])
+  }, [isResource, store.config.seedUri, store.config.source, entityTab])
 
   useEffect(() => {
     if (!store.pathRootId || !store.config.seedLabel) return
@@ -137,8 +152,19 @@ export default function App() {
         if (snap) store.restoreGraphSnapshot(snap)
         return
       }
+      if (parsed?.type === 'entity') {
+        if (parsed.entityView === 'overview') setEntityTab('overview')
+        else if (parsed.entityView === 'graph') setEntityTab('graph')
+        if (parsed.uri !== store.config.seedUri) {
+          if (parsed.entityView === 'graph') void store.openKnowledgeGraph(parsed.uri)
+          else void store.openEntityOverview(parsed.uri)
+        } else if (parsed.entityView === 'graph') {
+          void store.ensureKnowledgeGraph(parsed.uri)
+        }
+        return
+      }
       const uri = entityFromHash(window.location.hash, store.config.source)
-      if (uri && uri !== store.config.seedUri) void store.openKnowledgeGraph(uri)
+      if (uri && uri !== store.config.seedUri) void store.openEntityOverview(uri)
       if (!window.location.hash.replace(/^#/, '').trim()) store.clearGraph()
     }
     window.addEventListener('hashchange', onHash)
@@ -148,7 +174,8 @@ export default function App() {
   useEffect(() => {
     if (!hasGraph || !store.pathRootId || fullscreen) return
     void store.selectNode(store.pathRootId)
-    setRailCollapsed(true)
+    const view = entityViewFromHash(window.location.hash, store.config.source)
+    if (view !== 'overview') setRailCollapsed(true)
 
     const journey = pendingJourney.current
     if (journey) {
@@ -166,8 +193,10 @@ export default function App() {
         }
       }
     } else {
-      // Hash URLs and search opens land on the graph canvas first (keep Compare tab)
-      setEntityTab((tab) => (tab === 'compare' ? tab : 'graph'))
+      const view = entityViewFromHash(window.location.hash, store.config.source)
+      if (view === 'overview') setEntityTab('overview')
+      else if (view === 'graph') setEntityTab('graph')
+      else setEntityTab((tab) => (tab === 'compare' ? tab : 'graph'))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.pathRootId])
@@ -326,6 +355,25 @@ export default function App() {
     void store.applyHops(d, 'both')
   }
 
+  const applyEntityTab = useCallback(
+    (tab: EntityTab) => {
+      setEntityTab(tab)
+      const uri = store.pathRootId || store.config.seedUri
+      if (!uri) return
+      if (tab === 'graph' || tab === 'family' || tab === 'movie') {
+        void store.ensureKnowledgeGraph(uri)
+      }
+      if (tab === 'overview') {
+        const h = hashForEntityTab(uri, store.config.source, 'overview')
+        if (window.location.hash !== h) window.history.replaceState(null, '', h)
+      } else if (tab === 'graph' || tab === 'family' || tab === 'movie') {
+        const h = hashForEntityTab(uri, store.config.source, 'graph')
+        if (window.location.hash !== h) window.history.replaceState(null, '', h)
+      }
+    },
+    [store.pathRootId, store.config.seedUri, store.config.source, store],
+  )
+
   const familyLayout = () => {
     setLayoutMode('family-tree')
     setLayoutKey((k) => k + 1)
@@ -336,7 +384,7 @@ export default function App() {
       if (tab === 'graph') {
         if (store.viewMode === 'family') void store.exitFamilyTree()
         else if (store.viewMode === 'imdb') void store.exitImdbView()
-        setEntityTab('graph')
+        applyEntityTab('graph')
         setLayoutMode('auto')
         return
       }
@@ -353,7 +401,7 @@ export default function App() {
         return
       }
       if (tab === 'timeline') {
-        setEntityTab('overview')
+        applyEntityTab('overview')
         const uri = store.pathRootId || store.config.seedUri
         if (uri) {
           const hash = hashForEntity(uri, store.config.source, 'timeline')
@@ -364,9 +412,10 @@ export default function App() {
         }
         return
       }
-      setEntityTab(tab)
+      if (tab === 'overview') applyEntityTab('overview')
+      else setEntityTab(tab)
     },
-    [store],
+    [store, applyEntityTab],
   )
 
   const showGraphLens =
@@ -409,14 +458,14 @@ export default function App() {
       )}
 
       <div className="kg-main">
-        {hasGraph ? (
+        {showEntityPage ? (
           <>
             {!fullscreen && (
               <>
                 <EntityHeader
                   store={store}
                   activeTab={entityTab}
-                  onTab={setEntityTab}
+                  onTab={applyEntityTab}
                   onFamily={() => {
                     void store.openFamilyTree(store.familyDepth).then(familyLayout)
                   }}
@@ -432,7 +481,6 @@ export default function App() {
                   }}
                   headerCollapsed={headerCollapsed}
                   onToggleHeader={() => setHeaderCollapsed((v) => !v)}
-                  hideLensTabs={entityTab === 'overview'}
                 />
                 {relatedChips.length > 0 && (
                   <div className="related-chips-bar">
@@ -476,7 +524,7 @@ export default function App() {
                   store={store}
                   contentLanguage={contentLanguage}
                   onContentLanguageChange={onContentLanguageChange}
-                  onOpenGraph={() => setEntityTab('graph')}
+                  onOpenGraph={() => applyEntityTab('graph')}
                   onLens={onOverviewLens}
                 />
               )}

@@ -17,8 +17,11 @@ import {
   fetchWikipediaArticle,
   fetchWikipediaSitelink,
   qidFromUri,
+  type WikipediaArticleRaw,
   type WikipediaSectionRaw,
+  type WikipediaSitelink,
 } from './wikipediaArticle'
+import { wikiTocToArticleSections } from './wikiSectionNav'
 import { buildGroupNarrative } from '../utils/profileNarrative'
 
 const WIKIDATA_SECTION_ORDER: ProfileFactGroup[] = [
@@ -255,6 +258,10 @@ function mergeAwardsTable(sections: ArticleSection[], awards: ArticleTable | nul
 export type BuildArticleOptions = {
   includeSections?: boolean
   includeTables?: boolean
+  /** Reuse sitelink from fast shell — skips Wikidata sitelink lookup. */
+  sitelink?: WikipediaSitelink | null
+  /** Reuse lead from fast shell when includeSections is false. */
+  leadWiki?: Omit<WikipediaArticleRaw, 'sections'> | null
 }
 
 /** Build a Wikipedia-style article from Wikipedia + Wikidata + profile facts. */
@@ -263,15 +270,20 @@ export async function buildEntityArticle(
   lang: string,
   options: BuildArticleOptions = {},
 ): Promise<EntityArticle> {
-  const { includeSections = true, includeTables = true } = options
+  const { includeSections = true, includeTables = true, sitelink: prefetchedSitelink, leadWiki } = options
   const kind = (profile.kind === 'place' ? 'other' : profile.kind) as EntityKind
   const qid = qidFromUri(profile.uri)
   const wikidataUrl = qid ? `https://www.wikidata.org/wiki/${qid}` : undefined
 
-  const sitelink = await fetchWikipediaSitelink(profile.uri, lang)
-  const wiki = sitelink
-    ? await fetchWikipediaArticle(sitelink.title, sitelink.lang, { includeSections })
-    : null
+  const sitelink =
+    prefetchedSitelink ?? (await fetchWikipediaSitelink(profile.uri, lang))
+
+  let wiki: WikipediaArticleRaw | null = null
+  if (leadWiki && !includeSections) {
+    wiki = { ...leadWiki, sections: [] }
+  } else if (sitelink) {
+    wiki = await fetchWikipediaArticle(sitelink.title, sitelink.lang, { includeSections })
+  }
 
   const [filmography, awardsTable] =
     kind === 'person' && includeTables
@@ -285,6 +297,11 @@ export async function buildEntityArticle(
   if (wiki) sourcesUsed.add('wikipedia')
 
   let leadText = wiki?.leadText?.trim() ?? ''
+  const leadParagraphs = wiki?.leadParagraphs?.length
+    ? wiki.leadParagraphs
+    : leadText
+      ? [leadText]
+      : []
   let leadSource: EntityArticle['lead']['source'] = 'wikipedia'
   let leadImage = wiki?.leadImage ?? profile.imageUrl
 
@@ -311,6 +328,8 @@ export async function buildEntityArticle(
       const fam = buildWikidataSection('family', profile.factsByGroup.family, profile.label)
       if (fam) sections.push(fam)
     }
+  } else if (leadWiki?.sectionToc?.length) {
+    sections = wikiTocToArticleSections(leadWiki.sectionToc)
   } else {
     sections = buildFallbackSections(profile, profile.label, filmography, awardsTable)
   }
@@ -357,6 +376,7 @@ export async function buildEntityArticle(
     wikidataUrl,
     lead: {
       text: leadText,
+      paragraphs: leadParagraphs.length ? leadParagraphs : undefined,
       imageUrl: leadImage,
       source: leadSource,
     },
@@ -364,6 +384,7 @@ export async function buildEntityArticle(
     sections,
     references,
     sourcesUsed: [...sourcesUsed],
+    wikipediaSectionToc: wiki?.sectionToc ?? leadWiki?.sectionToc,
   }
 }
 

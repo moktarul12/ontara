@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { entityUrisMatch, hashForEntity, hashForMapSnapshot, parseHash } from './entityUrl'
+import {
+  entityUrisMatch,
+  hashForEntity,
+  hashForEntityTab,
+  hashForMapSnapshot,
+  parseHash,
+} from './entityUrl'
 
 describe('entityUrl map hash', () => {
   it('parses map snapshot id', () => {
@@ -13,11 +19,45 @@ describe('entityUrl map hash', () => {
     expect(hashForMapSnapshot('xyz')).toBe('#/map/xyz')
   })
 
+  it('parses bare entity and knowledge-graph views', () => {
+    expect(parseHash('#/Q949228/', 'wikidata')).toEqual({
+      type: 'entity',
+      uri: 'http://www.wikidata.org/entity/Q949228',
+      overviewSection: 'summary',
+      entityView: 'overview',
+    })
+    expect(parseHash('#/Q949228', 'wikidata')).toEqual({
+      type: 'entity',
+      uri: 'http://www.wikidata.org/entity/Q949228',
+      overviewSection: 'summary',
+      entityView: 'overview',
+    })
+    expect(parseHash('#/Q949228/overview', 'wikidata')).toEqual({
+      type: 'entity',
+      uri: 'http://www.wikidata.org/entity/Q949228',
+      overviewSection: 'summary',
+      entityView: 'overview',
+    })
+    expect(parseHash('#/Q949228/knowledge-graph', 'wikidata')).toEqual({
+      type: 'entity',
+      uri: 'http://www.wikidata.org/entity/Q949228',
+      entityView: 'graph',
+    })
+  })
+
+  it('builds canonical overview and knowledge-graph hashes', () => {
+    const uri = 'http://www.wikidata.org/entity/Q949228'
+    expect(hashForEntityTab(uri, 'wikidata', 'overview')).toBe('#/Q949228/overview')
+    expect(hashForEntityTab(uri, 'wikidata', 'graph')).toBe('#/Q949228/knowledge-graph')
+    expect(hashForEntity(uri, 'wikidata')).toBe('#/Q949228/overview')
+  })
+
   it('parses wiki chapter section in hash', () => {
     expect(parseHash('#/Q9570/w/early-life-and-family', 'wikidata')).toEqual({
       type: 'entity',
       uri: 'http://www.wikidata.org/entity/Q9570',
       overviewSection: 'w/early-life-and-family',
+      entityView: 'overview',
     })
   })
 

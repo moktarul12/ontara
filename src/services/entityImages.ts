@@ -15,6 +15,25 @@ function commonsFromClaim(value: unknown): string | null {
   return null
 }
 
+type WbClaimsEntity = {
+  claims?: Record<string, { mainsnak: { datavalue?: { value: unknown } } }[]>
+}
+
+/** Resolve P18 hero image from an already-loaded wbgetentities payload (no extra API call). */
+export async function imageUrlFromEntityClaims(
+  entity: WbClaimsEntity | undefined,
+  width = 480,
+): Promise<string | undefined> {
+  const file = entity?.claims?.[P18]?.[0]?.mainsnak?.datavalue?.value
+  const name = commonsFromClaim(file)
+  if (!name) return undefined
+  const url = await wd.resolveCommonsThumb(
+    `http://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(name)}`,
+    width,
+  )
+  return url ?? undefined
+}
+
 /** Fetch P18 image via Wikidata API (fallback when SPARQL image is slow). */
 export async function fetchWikidataP18Image(
   entityUri: string,

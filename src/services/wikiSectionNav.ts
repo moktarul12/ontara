@@ -1,7 +1,31 @@
 import type { ArticleSection } from '../types/entityArticle'
 import type { EntityDossier } from '../types/entityDossier'
 import type { OverviewSectionDef } from './overviewSections'
-import { cleanWikiSectionTitle, normalizeSectionParagraphs } from '../utils/sectionParagraphs'
+import type { WikipediaSectionTocEntry } from './wikipediaArticle'
+import { cleanWikiSectionTitle, cleanWikiParagraphText } from '../utils/sectionParagraphs'
+import { resolveArticleLeadParagraphs } from '../utils/dossierNarrative'
+
+export function wikiSlugId(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+}
+
+/** Wikipedia section headings for instant "On this page" nav (bodies load later). */
+export function wikiTocToArticleSections(toc: WikipediaSectionTocEntry[]): ArticleSection[] {
+  return toc
+    .filter((s) => s.level === 2)
+    .map((s) => ({
+      id: wikiSlugId(s.anchor || s.title),
+      title: s.title,
+      level: 2 as const,
+      paragraphs: [],
+      prose: '',
+      children: [],
+      source: 'wikipedia' as const,
+    }))
+}
 
 /** Dynamic wiki chapter route, e.g. w/early-life-and-family */
 export type WikiSectionNavId = `w/${string}`
@@ -21,24 +45,29 @@ export function topLevelWikiSections(dossier: EntityDossier): ArticleSection[] {
   return sections.filter(
     (s) =>
       s.level === 2 &&
-      ((s.paragraphs?.length ?? 0) > 0 || s.children.length > 0 || (s.tables?.length ?? 0) > 0),
+      ((s.paragraphs?.length ?? 0) > 0 ||
+        s.children.length > 0 ||
+        (s.tables?.length ?? 0) > 0 ||
+        s.source === 'wikipedia'),
   )
 }
 
 export function hasWikiChapterNav(dossier: EntityDossier): boolean {
-  const lead = dossier.wikipedia?.leadText?.trim()
+  const lead = resolveArticleLeadParagraphs(dossier)[0]
   return Boolean((lead && lead.length > 40) || topLevelWikiSections(dossier).length > 0)
 }
 
 function syntheticIntroductionSection(dossier: EntityDossier): ArticleSection | undefined {
-  const lead = dossier.wikipedia?.leadText?.trim()
-  if (!lead || lead.length < 40) return undefined
+  const paragraphs = resolveArticleLeadParagraphs(dossier)
+    .map(cleanWikiParagraphText)
+    .filter((p) => p.length > 12)
+  if (!paragraphs.length || paragraphs[0].length < 40) return undefined
   return {
     id: 'introduction',
     title: 'Introduction',
     level: 2,
-    paragraphs: normalizeSectionParagraphs([lead]),
-    prose: lead,
+    paragraphs,
+    prose: paragraphs.join('\n\n'),
     children: [],
     source: 'wikipedia',
   }
@@ -73,7 +102,7 @@ export function wikiSectionNavDefs(dossier: EntityDossier): OverviewSectionDef[]
       icon: '¶',
       group: 'wiki',
       title: 'Introduction',
-      description: 'Opening summary — editorial rewrite of the Wikipedia lead',
+      description: 'Opening summary from the Wikipedia lead',
       previewHint: () => `${intro.paragraphs?.[0]?.slice(0, 90)}…`,
     })
   }
@@ -91,7 +120,7 @@ export function wikiSectionNavDefs(dossier: EntityDossier): OverviewSectionDef[]
       previewHint: (d) => {
         const s = findWikiSectionByNavId(d, navId)
         const first = s?.paragraphs?.[0]
-        const preview = first ? normalizeSectionParagraphs([first])[0] : undefined
+        const preview = first ? cleanWikiParagraphText(first) : undefined
         return preview && preview.length > 30 ? `${preview.slice(0, 88)}…` : undefined
       },
     })

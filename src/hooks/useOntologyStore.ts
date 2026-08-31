@@ -21,6 +21,7 @@ import {
   type HopDirection,
 } from '../services/sparql'
 import { isWikidataEndpoint } from '../services/sparql-core'
+import { fetchEntitySeedMeta } from '../services/entityCardShell'
 import * as wd from '../services/wikidata'
 import {
   expandEntityHopLayer,
@@ -431,6 +432,10 @@ function linkId(source: string, predicate: string, target: string) {
   return `${source}|${predicate}|${target}`
 }
 
+function graphIsShell(graph: GraphData): boolean {
+  return graph.nodes.length === 1 && graph.links.length === 0
+}
+
 export function useOntologyStore() {
   const [state, dispatch] = useReducer(reducer, initialState)
   const selectGen = useRef(0)
@@ -438,6 +443,67 @@ export function useOntologyStore() {
   const selectedNode = useMemo(
     () => state.graph.nodes.find((n) => n.id === state.selectedNodeId) ?? null,
     [state.graph.nodes, state.selectedNodeId],
+  )
+
+  const openEntityOverview = useCallback(
+    async (uri: string) => {
+      const gen = ++selectGen.current
+      dispatch({
+        type: 'SET_CONFIG',
+        config: {
+          startMode: 'resource',
+          seedUri: uri,
+          seedLabel: localName(uri),
+        },
+      })
+      dispatch({
+        type: 'SET_LOADING',
+        loading: true,
+        message: 'Loading overview…',
+      })
+      try {
+        const meta = await fetchEntitySeedMeta(uri, 'en')
+        if (gen !== selectGen.current) return
+        const center: GraphNode = {
+          id: uri,
+          uri,
+          label: meta.label,
+          type: 'resource',
+          classes: [],
+          dataProperties: [],
+          __hopDepth: 0,
+          __pulse: 1,
+          __imageUrl: meta.imageUrl,
+        }
+        dispatch({
+          type: 'RESET_GRAPH',
+          graph: { nodes: [center], links: [] },
+          seedId: uri,
+          panelMode: 'details',
+          bumpEpoch: true,
+        })
+        dispatch({
+          type: 'SET_CONFIG',
+          config: {
+            seedLabel: meta.label,
+          },
+        })
+        dispatch({ type: 'SET_ENTITY_KIND', kind: meta.kind === 'place' ? 'other' : meta.kind })
+        dispatch({ type: 'SET_VIEW_MODE', mode: 'dossier' })
+        dispatch({ type: 'SET_IMDB_URL', url: null })
+      } catch (err) {
+        if (gen !== selectGen.current) return
+        dispatch({
+          type: 'SET_ERROR',
+          error: err instanceof Error ? err.message : 'Failed to open overview',
+        })
+      } finally {
+        if (gen === selectGen.current) {
+          dispatch({ type: 'SET_LOADING', loading: false })
+        }
+      }
+    },
+    [],
   )
 
   const openKnowledgeGraph = useCallback(
@@ -1635,10 +1701,22 @@ export function useOntologyStore() {
     })
   }, [])
 
+  const ensureKnowledgeGraph = useCallback(
+    async (uri: string) => {
+      if (!graphIsShell(state.graph) && state.config.seedUri === uri && state.graph.nodes.length > 0) {
+        return
+      }
+      await openKnowledgeGraph(uri)
+    },
+    [state.graph, state.config.seedUri, openKnowledgeGraph],
+  )
+
   return {
     ...state,
     selectedNode,
+    openEntityOverview,
     openKnowledgeGraph,
+    ensureKnowledgeGraph,
     openFamilyTree,
     expandFamilyTree,
     exitFamilyTree,

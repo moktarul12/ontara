@@ -5,25 +5,76 @@ import type { OverviewSectionDef } from '../../services/overviewSections'
 import { wikiSectionParagraphCount } from '../../services/wikiSectionNav'
 import {
   cleanWikiSectionTitle,
+  cleanWikiParagraphText,
   normalizeSectionParagraphs,
 } from '../../utils/sectionParagraphs'
+import {
+  isEraTimelineTitle,
+  isHistoryChapter,
+  splitTimelineParagraph,
+} from '../../utils/wikiTimelineParagraphs'
 
-function SubsectionBlock({ section, depth = 0 }: { section: ArticleSection; depth?: number }) {
-  const Heading = section.level === 3 ? 'h3' : 'h4'
-  const paragraphs = normalizeSectionParagraphs(section.paragraphs ?? [])
+function WikiParagraphs({
+  paragraphs,
+  historyMode,
+  leadClass = 'ke-wiki-chapter-p',
+}: {
+  paragraphs: string[]
+  historyMode?: boolean
+  leadClass?: string
+}) {
   return (
-    <section className={`ke-wiki-subsection depth-${depth}`}>
-      <Heading>{cleanWikiSectionTitle(section.title)}</Heading>
-      {paragraphs.map((p, i) => (
-        <p key={i} className="ke-wiki-chapter-p">
-          {p}
-        </p>
-      ))}
+    <>
+      {paragraphs.map((p, i) => {
+        if (historyMode) {
+          const { heading, body } = splitTimelineParagraph(p)
+          if (heading) {
+            return (
+              <div key={i} className="corpus-timeline-entry">
+                <h4 className="corpus-timeline-date">{heading}</h4>
+                <p className="ke-wiki-chapter-p">{body}</p>
+              </div>
+            )
+          }
+        }
+        return (
+          <p key={i} className={i === 0 && leadClass !== 'ke-wiki-chapter-p' ? leadClass : 'ke-wiki-chapter-p'}>
+            {p}
+          </p>
+        )
+      })}
+    </>
+  )
+}
+
+function SubsectionBlock({
+  section,
+  depth = 0,
+  historyMode = false,
+}: {
+  section: ArticleSection
+  depth?: number
+  historyMode?: boolean
+}) {
+  const eraHeading = historyMode && isEraTimelineTitle(section.title)
+  const Heading = eraHeading ? 'h3' : section.level === 3 ? 'h3' : 'h4'
+  const paragraphs =
+    section.source === 'wikipedia'
+      ? (section.paragraphs ?? []).map(cleanWikiParagraphText).filter((p) => p.length > 12)
+      : normalizeSectionParagraphs(section.paragraphs ?? [])
+  return (
+    <section
+      className={`ke-wiki-subsection depth-${depth}${historyMode ? ' is-history-era' : ''}${eraHeading ? ' is-era-heading' : ''}`}
+    >
+      <Heading className={eraHeading ? 'corpus-timeline-era' : undefined}>
+        {cleanWikiSectionTitle(section.title)}
+      </Heading>
+      <WikiParagraphs paragraphs={paragraphs} historyMode={historyMode} />
       {section.tables?.map((t) => (
         <ArticleTableView key={t.id} table={t} />
       ))}
       {section.children.map((child) => (
-        <SubsectionBlock key={child.id} section={child} depth={depth + 1} />
+        <SubsectionBlock key={child.id} section={child} depth={depth + 1} historyMode={historyMode} />
       ))}
     </section>
   )
@@ -44,22 +95,26 @@ export function WikiSectionView({
   onSection: (id: OverviewSectionDef['id']) => void
   embedded?: boolean
 }) {
-  const paragraphs = normalizeSectionParagraphs(section.paragraphs ?? [])
+  const paragraphs = embedded
+    ? (section.paragraphs ?? []).map(cleanWikiParagraphText).filter((p) => p.length > 12)
+    : normalizeSectionParagraphs(section.paragraphs ?? [])
   const title = cleanWikiSectionTitle(section.title)
+  const historyMode = embedded && isHistoryChapter(section)
   const wordCount = paragraphs.join(' ').split(/\s+/).filter(Boolean).length
   const subCount = section.children.length
+  const showIntroParagraphs = !(historyMode && section.children.length > 0)
 
   const renderParagraphs = () => {
-    if (!paragraphs.length) return null
+    if (!paragraphs.length || !showIntroParagraphs) return null
 
     if (embedded) {
       return (
         <div className="ke-wiki-chapter-body is-embedded-body">
-          {paragraphs.map((p, i) => (
-            <p key={i} className={i === 0 ? 'ke-wiki-chapter-lead' : 'ke-wiki-chapter-p'}>
-              {p}
-            </p>
-          ))}
+          <WikiParagraphs
+            paragraphs={paragraphs}
+            historyMode={historyMode}
+            leadClass="ke-wiki-chapter-lead"
+          />
         </div>
       )
     }
@@ -83,11 +138,12 @@ export function WikiSectionView({
   }
 
   return (
-    <article className={`ke-wiki-chapter ${embedded ? 'is-embedded' : ''}`}>
+    <article className={`ke-wiki-chapter ${embedded ? 'is-embedded' : ''}${historyMode ? ' is-history-chapter' : ''}`}>
       <header className="ke-wiki-chapter-head">
+        {!historyMode && (
         <div className="ke-wiki-chapter-meta">
           <span className="ke-wiki-chapter-eyebrow">
-            {dossier.aiProfile?.source === 'llm' || dossier.aiProfile?.source === 'cache'
+            {section.source === 'wikipedia' ? 'Wikipedia' : dossier.aiProfile?.source === 'llm' || dossier.aiProfile?.source === 'cache'
               ? 'AI editorial'
               : 'Wikipedia'}
           </span>
@@ -98,7 +154,8 @@ export function WikiSectionView({
             </span>
           )}
         </div>
-        <h1 className="ke-wiki-chapter-title">{title}</h1>
+        )}
+        <h1 className={`ke-wiki-chapter-title${historyMode ? ' corpus-wiki-section-title' : ''}`}>{title}</h1>
         {!embedded && renderParagraphs()}
       </header>
 
@@ -111,29 +168,31 @@ export function WikiSectionView({
       {section.children.length > 0 && (
         <div className="ke-wiki-chapter-subs">
           {section.children.map((child) => (
-            <SubsectionBlock key={child.id} section={child} />
+            <SubsectionBlock key={child.id} section={child} historyMode={historyMode} />
           ))}
         </div>
       )}
 
-      <footer className="ke-wiki-chapter-foot">
-        {!embedded && (
-          <p className="ke-wiki-chapter-note muted">
-            Editorial rewrite for readability — facts preserved, wording original.{' '}
-            {wikiSectionParagraphCount(section)} paragraphs in this chapter.
-          </p>
-        )}
-        {dossier.wikipediaUrl && (
-          <a
-            href={`${dossier.wikipediaUrl}#${section.id}`}
-            target="_blank"
-            rel="noreferrer"
-            className="ke-wiki-chapter-wiki-link"
-          >
-            Compare on Wikipedia ↗
-          </a>
-        )}
-      </footer>
+      {!embedded && (
+        <footer className="ke-wiki-chapter-foot">
+          {section.source !== 'wikipedia' && (
+            <p className="ke-wiki-chapter-note muted">
+              Editorial rewrite for readability — facts preserved, wording original.{' '}
+              {wikiSectionParagraphCount(section)} paragraphs in this chapter.
+            </p>
+          )}
+          {dossier.wikipediaUrl && (
+            <a
+              href={`${dossier.wikipediaUrl}#${section.id}`}
+              target="_blank"
+              rel="noreferrer"
+              className="ke-wiki-chapter-wiki-link"
+            >
+              Compare on Wikipedia ↗
+            </a>
+          )}
+        </footer>
+      )}
 
       {(prev || next) && (
         <nav className={`ke-wiki-chapter-nav ${embedded ? 'is-compact' : ''}`} aria-label="Wiki chapters">

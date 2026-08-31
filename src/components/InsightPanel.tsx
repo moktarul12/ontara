@@ -101,7 +101,9 @@ export function InsightPanel({
 
   const sources = [
     { id: 'wikidata', label: 'Wikidata', href: node?.uri },
-    { id: store.config.source, label: sourceDisplayName(store.config.source) },
+    ...(store.config.source !== 'wikidata'
+      ? [{ id: store.config.source, label: sourceDisplayName(store.config.source), href: undefined as string | undefined }]
+      : []),
   ]
 
   if (!node) {

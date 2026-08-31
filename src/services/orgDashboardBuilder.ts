@@ -41,6 +41,40 @@ export type OrgDashboardData = {
   exchange?: string
 }
 
+const ORG_HERO_METRIC_ORDER = [
+  'Revenue',
+  'Net Income',
+  'Market Cap',
+  'Stock',
+  'Ticker',
+  'Employees',
+  'Founded',
+] as const
+
+function mergeOrgHeroMetrics(dossier: EntityDossier, fromFacts: HeroMetric[]): HeroMetric[] {
+  const byLabel = new Map<string, HeroMetric>()
+  for (const m of dossier.hero.metrics) byLabel.set(m.label, m)
+  for (const m of fromFacts) byLabel.set(m.label, m)
+
+  const exchange = factValues(dossier.summary.verifiedFacts, 'stock exchange')[0]
+  const ticker = factValues(dossier.summary.verifiedFacts, 'ticker symbol')[0]
+  if (ticker && !byLabel.has('Stock') && !byLabel.has('Ticker')) {
+    byLabel.set('Stock', {
+      label: 'Stock',
+      value: exchange ? `${exchange}: ${ticker}` : ticker,
+      icon: 'years',
+    })
+  }
+
+  return [...byLabel.values()]
+    .sort((a, b) => {
+      const ai = ORG_HERO_METRIC_ORDER.indexOf(a.label as (typeof ORG_HERO_METRIC_ORDER)[number])
+      const bi = ORG_HERO_METRIC_ORDER.indexOf(b.label as (typeof ORG_HERO_METRIC_ORDER)[number])
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi)
+    })
+    .slice(0, 5)
+}
+
 function factValues(facts: VerifiedFact[], ...labels: string[]): string[] {
   const want = new Set(labels.map((l) => l.toLowerCase()))
   return facts
@@ -52,10 +86,11 @@ function factDisplay(facts: VerifiedFact[], ...labels: string[]): string | undef
   const want = new Set(labels.map((l) => l.toLowerCase()))
   const hit = facts.find((f) => want.has(f.label.toLowerCase()))
   if (!hit) return undefined
-  if (hit.value && hit.value !== '—') return hit.value
-  const raw = hit.values ?? []
+  const raw =
+    hit.values?.length ? hit.values : hit.value && hit.value !== '—' ? [hit.value] : []
   if (!raw.length) return undefined
-  return formatFactDisplay(hit.label, raw).display
+  const display = formatFactDisplay(hit.label, raw).display
+  return display === '—' ? undefined : display
 }
 
 function buildOrgTimeline(dossier: EntityDossier, facts: VerifiedFact[]): Milestone[] {
@@ -132,8 +167,16 @@ export function buildOrgDashboardData(dossier: EntityDossier): OrgDashboardData 
   if (revenue) heroMetrics.push({ label: 'Revenue', value: revenue, icon: 'award' })
   if (netIncome) heroMetrics.push({ label: 'Net Income', value: netIncome, icon: 'star' })
   if (marketCap) heroMetrics.push({ label: 'Market Cap', value: marketCap, icon: 'film' })
-  if (ticker) heroMetrics.push({ label: 'Ticker', value: ticker, icon: 'years' })
-  if (!heroMetrics.length) heroMetrics.push(...dossier.hero.metrics)
+  if (ticker) {
+    heroMetrics.push({
+      label: exchange ? 'Stock' : 'Ticker',
+      value: exchange ? `${exchange}: ${ticker}` : ticker,
+      icon: 'years',
+    })
+  }
+  if (employees) heroMetrics.push({ label: 'Employees', value: employees, icon: 'film' })
+
+  const mergedHeroMetrics = mergeOrgHeroMetrics(dossier, heroMetrics)
 
   const industry = factValues(facts, 'industry').slice(0, 2).join(' · ')
   const hq = factDisplay(facts, 'headquarters', 'headquarters location')
@@ -196,7 +239,7 @@ export function buildOrgDashboardData(dossier: EntityDossier): OrgDashboardData 
 
   return {
     typeTags,
-    heroMetrics: heroMetrics.slice(0, 5),
+    heroMetrics: mergedHeroMetrics,
     highlights: highlights.slice(0, 4),
     financialPoints,
     keyPeople,

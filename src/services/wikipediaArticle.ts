@@ -1,11 +1,17 @@
 import { htmlToParagraphs, htmlToPlainText, htmlToExternalLinks } from '../utils/htmlToText'
-import { editorializeWikiParagraph, editorializeWikiParagraphs } from '../utils/editorializeWiki'
-import { normalizeSectionParagraphs } from '../utils/sectionParagraphs'
+import { wikiSlugId } from './wikiSectionNav'
 
 export type WikipediaSitelink = {
   title: string
   lang: string
   url: string
+}
+
+export type WikipediaSectionTocEntry = {
+  index: string
+  title: string
+  level: 2 | 3 | 4
+  anchor: string
 }
 
 export type WikipediaSectionRaw = {
@@ -22,6 +28,9 @@ export type WikipediaArticleRaw = {
   url: string
   description?: string
   leadText: string
+  /** Full Wikipedia lead section (section 0), one string per <p>. */
+  leadParagraphs: string[]
+  sectionToc: WikipediaSectionTocEntry[]
   leadImage?: string
   sections: WikipediaSectionRaw[]
 }
@@ -124,7 +133,43 @@ function headingLevel(section: MwSection): 2 | 3 | 4 {
   return 4
 }
 
-async function fetchSectionParagraphs(
+async function fetchWikipediaSectionToc(lang: string, page: string): Promise<WikipediaSectionTocEntry[]> {
+  const sectionsData = await fetchJson<MwParseSections>(
+    mediaWikiApi(lang, {
+      action: 'parse',
+      page,
+      prop: 'sections',
+    }),
+    8000,
+  )
+
+  return (sectionsData?.parse?.sections ?? [])
+    .filter((s) => s.line && !SKIP_SECTIONS.test(s.line.trim()))
+    .map((s) => ({
+      index: s.index,
+      title: s.line.trim(),
+      level: headingLevel(s),
+      anchor: s.anchor,
+    }))
+}
+
+async function fetchIntroParagraphsRaw(lang: string, page: string): Promise<string[]> {
+  const data = await fetchJson<MwParseText>(
+    mediaWikiApi(lang, {
+      action: 'parse',
+      page,
+      section: '0',
+      prop: 'text',
+      formatversion: '2',
+    }),
+    12000,
+  )
+  return htmlToParagraphs(data?.parse?.text ?? '')
+    .map((p) => p.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim())
+    .filter((p) => p.length > 12)
+}
+
+async function fetchSectionParagraphsRaw(
   lang: string,
   page: string,
   sectionIndex: string,
@@ -139,24 +184,92 @@ async function fetchSectionParagraphs(
     }),
     12000,
   )
-  const html = data?.parse?.text ?? ''
-  return normalizeSectionParagraphs(editorializeWikiParagraphs(htmlToParagraphs(html)))
+  return htmlToParagraphs(data?.parse?.text ?? '')
+    .map((p) => p.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim())
+    .filter((p) => p.length > 12)
+}
+
+async function fetchSectionParagraphs(
+  lang: string,
+  page: string,
+  sectionIndex: string,
+): Promise<string[]> {
+  return fetchSectionParagraphsRaw(lang, page, sectionIndex)
+}
+
+function nestSectionRaw(
+  flat: WikipediaSectionRaw[],
+): (WikipediaSectionRaw & { children: WikipediaSectionRaw[] })[] {
+  const roots: (WikipediaSectionRaw & { children: WikipediaSectionRaw[] })[] = []
+  const stack: (WikipediaSectionRaw & { children: WikipediaSectionRaw[] })[] = []
+
+  for (const s of flat) {
+    const node = { ...s, children: [] as WikipediaSectionRaw[] }
+    while (stack.length && stack[stack.length - 1].level >= s.level) stack.pop()
+    if (!stack.length) roots.push(node)
+    else stack[stack.length - 1].children.push(node)
+    stack.push(node)
+  }
+  return roots
+}
+
+/** Fetch one h2 chapter and nested h3/h4 subsections (Corpus-style on-demand). */
+export async function fetchWikipediaSectionTree(
+  lang: string,
+  page: string,
+  toc: WikipediaSectionTocEntry[],
+  sectionSlug: string,
+): Promise<(WikipediaSectionRaw & { children: WikipediaSectionRaw[] }) | null> {
+  const rootIdx = toc.findIndex(
+    (s) => s.level === 2 && wikiSlugId(s.anchor || s.title) === sectionSlug,
+  )
+  if (rootIdx < 0) return null
+
+  const slice: WikipediaSectionTocEntry[] = [toc[rootIdx]]
+  for (let i = rootIdx + 1; i < toc.length; i++) {
+    if (toc[i].level <= 2) break
+    slice.push(toc[i])
+  }
+
+  const fetched = await Promise.all(
+    slice.map(async (entry) => ({
+      entry,
+      paragraphs: await fetchSectionParagraphsRaw(lang, page, entry.index),
+    })),
+  )
+
+  const flat: WikipediaSectionRaw[] = []
+  for (const { entry, paragraphs } of fetched) {
+    if (!paragraphs.length && entry.level > 2) continue
+    flat.push({
+      id: parseInt(entry.index, 10),
+      title: entry.title,
+      level: entry.level,
+      paragraphs,
+      anchor: entry.anchor,
+    })
+  }
+
+  if (!flat.length) return null
+  return nestSectionRaw(flat)[0] ?? null
 }
 
 export type FetchWikipediaOptions = {
   includeSections?: boolean
 }
 
-/** Fast path: Wikipedia REST summary only (no section bodies). */
-export async function fetchWikipediaLead(
+export type WikipediaLeadShell = Omit<WikipediaArticleRaw, 'sections'>
+
+/** Fast path: REST summary + section TOC (nav) — no section bodies. */
+export async function fetchWikipediaLeadShell(
   title: string,
   lang: string,
-): Promise<Omit<WikipediaArticleRaw, 'sections'> | null> {
+): Promise<WikipediaLeadShell | null> {
   const encoded = encodeURIComponent(title.replace(/ /g, '_'))
   const summary = await fetchJson<SummaryResponse>(`/api/wikipedia/${lang}/page/summary/${encoded}`)
 
   if (!summary?.title) {
-    if (lang !== 'en') return fetchWikipediaLead(title, 'en')
+    if (lang !== 'en') return fetchWikipediaLeadShell(title, 'en')
     return null
   }
 
@@ -165,22 +278,22 @@ export async function fetchWikipediaLead(
     summary.content_urls?.desktop?.page ??
     `${wikiBaseUrl(lang)}/wiki/${encodeURIComponent(pageTitle.replace(/ /g, '_'))}`
 
+  const [sectionToc, introParagraphs] = await Promise.all([
+    fetchWikipediaSectionToc(lang, pageTitle),
+    fetchIntroParagraphsRaw(lang, pageTitle),
+  ])
+
   let leadText = summary.extract?.trim() ?? ''
-  if (!leadText) {
-    const intro = await fetchJson<MwParseText>(
-      mediaWikiApi(lang, {
-        action: 'parse',
-        page: pageTitle,
-        section: '0',
-        prop: 'text',
-        formatversion: '2',
-      }),
-    )
-    leadText = htmlToPlainText(intro?.parse?.text ?? '')
-  } else {
+  if (leadText) {
     leadText = htmlToPlainText(`<p>${leadText}</p>`)
+    leadText = leadText.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim()
   }
-  leadText = editorializeWikiParagraph(leadText)
+
+  const leadParagraphs =
+    introParagraphs.length > 0 ? introParagraphs : leadText ? [leadText] : []
+  if (!leadText && leadParagraphs.length) {
+    leadText = leadParagraphs[0]
+  }
 
   return {
     title: pageTitle,
@@ -188,7 +301,40 @@ export async function fetchWikipediaLead(
     url,
     description: summary.description,
     leadText,
+    leadParagraphs,
+    sectionToc,
     leadImage: summary.thumbnail?.source,
+  }
+}
+
+/** Section 0 paragraphs (full Wikipedia lead). */
+export async function fetchWikipediaIntroParagraphs(
+  title: string,
+  lang: string,
+): Promise<string[]> {
+  return fetchIntroParagraphsRaw(lang, title)
+}
+
+/** Fast path: Wikipedia REST summary + lead section + TOC. */
+export async function fetchWikipediaLead(
+  title: string,
+  lang: string,
+): Promise<WikipediaLeadShell | null> {
+  const shell = await fetchWikipediaLeadShell(title, lang)
+  if (!shell) return null
+
+  const introParagraphs = await fetchIntroParagraphsRaw(lang, shell.title)
+  let leadText = shell.leadText
+  if (!leadText && introParagraphs.length) {
+    leadText = introParagraphs[0]
+  }
+  const leadParagraphs = introParagraphs.length ? introParagraphs : shell.leadParagraphs ?? []
+
+  return {
+    ...shell,
+    leadText,
+    leadParagraphs,
+    sectionToc: shell.sectionToc,
   }
 }
 
@@ -207,24 +353,15 @@ export async function fetchWikipediaArticle(
   }
 
   const pageTitle = lead.title
-  const sectionsData = await fetchJson<MwParseSections>(
-    mediaWikiApi(lang, {
-      action: 'parse',
-      page: pageTitle,
-      prop: 'sections',
-    }),
-  )
-
-  const mwSections = (sectionsData?.parse?.sections ?? []).filter(
-    (s) => s.line && !SKIP_SECTIONS.test(s.line.trim()),
-  )
+  const sectionRefs =
+    lead.sectionToc.length > 0 ? lead.sectionToc : await fetchWikipediaSectionToc(lang, pageTitle)
 
   // Fetch section bodies in small parallel batches
   const sections: WikipediaSectionRaw[] = []
   const batchSize = 6
 
-  for (let i = 0; i < mwSections.length; i += batchSize) {
-    const batch = mwSections.slice(i, i + batchSize)
+  for (let i = 0; i < sectionRefs.length; i += batchSize) {
+    const batch = sectionRefs.slice(i, i + batchSize)
     const results = await Promise.all(
       batch.map(async (s) => {
         const paragraphs = await fetchSectionParagraphs(lang, pageTitle, s.index)
@@ -235,8 +372,8 @@ export async function fetchWikipediaArticle(
       if (!paragraphs.length) continue
       sections.push({
         id: parseInt(s.index, 10),
-        title: s.line.trim(),
-        level: headingLevel(s),
+        title: s.title,
+        level: s.level,
         paragraphs,
         anchor: s.anchor,
       })

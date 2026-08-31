@@ -1,5 +1,7 @@
+import type { CSSProperties } from 'react'
 import type { EntityDossier, HeroMetric } from '../../types/entityDossier'
 import type { PersonDashboardData } from '../../services/personDashboardBuilder'
+import { resolveArticleLead } from '../../utils/dossierNarrative'
 
 const METRIC_ICONS: Record<HeroMetric['icon'], string> = {
   film: '🎬',
@@ -12,13 +14,6 @@ const PILL_ICONS: Record<string, string> = {
   Born: '📅',
   Birthplace: '📍',
   'Years Active': '⏱',
-}
-
-function truncateBio(text: string, max = 220): string {
-  if (text.length <= max) return text
-  const cut = text.slice(0, max)
-  const last = cut.lastIndexOf(' ')
-  return `${(last > 80 ? cut.slice(0, last) : cut).trim()}…`
 }
 
 export function PersonHero({
@@ -34,13 +29,22 @@ export function PersonHero({
   enriching?: boolean
   onOpenGraph: () => void
 }) {
-  const intro = dossier.hero.intro
+  const intro = resolveArticleLead(dossier) ?? dossier.hero.intro
   const tags = personData.typeTags.length
     ? personData.typeTags
     : ['Person', 'Wikidata']
 
   return (
-    <section className="entity-hero-wrap person-hero-wrap" id="cat-profile" aria-label="Profile">
+    <section
+      className="entity-hero-wrap person-hero-wrap ke-v3-hero-wrap"
+      id="cat-profile"
+      aria-label="Profile"
+      style={
+        dossier.hero.imageUrl
+          ? ({ '--hero-bg': `url(${dossier.hero.imageUrl})` } as CSSProperties)
+          : undefined
+      }
+    >
       <article className="entity-hero-card person-hero-card">
         <div className="entity-hero-card-top">
           <div className="entity-hero-media-wrap">
@@ -85,8 +89,6 @@ export function PersonHero({
               <p className="entity-hero-subtitle">{dossier.hero.subtitle}</p>
             )}
 
-            {intro && <p className="entity-hero-bio">{truncateBio(intro)}</p>}
-
             {dossier.hero.factPills.length > 0 && (
               <div className="entity-hero-pills">
                 {dossier.hero.factPills.map((p) => (
@@ -104,6 +106,8 @@ export function PersonHero({
             )}
           </div>
         </div>
+
+        {intro && <p className="entity-hero-bio entity-hero-lead">{intro}</p>}
 
         {personData.heroMetrics.length > 0 && (
           <div className="entity-hero-metrics">

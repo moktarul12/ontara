@@ -96,8 +96,7 @@ export function applyAiEntityProfile(dossier: EntityDossier, ai: AiEntityProfile
   const wikipedia = dossier.wikipedia
     ? {
         ...dossier.wikipedia,
-        leadText: ai.chapters.find((c) => c.id === 'introduction')?.lead ?? dossier.wikipedia.leadText,
-        sections: overlayWikiTree(dossier.wikipedia.sections, ai.chapters),
+        // Keep Wikipedia lead and section bodies for reading; AI stays in aiProfile only.
       }
     : undefined
 
@@ -106,12 +105,11 @@ export function applyAiEntityProfile(dossier: EntityDossier, ai: AiEntityProfile
     aiProfile: ai,
     hero: {
       ...dossier.hero,
-      intro: ai.summary.narrative || dossier.hero.intro,
     },
     summary: {
       ...dossier.summary,
-      readingHook: ai.summary.hook || dossier.summary.readingHook,
-      storyParagraph: ai.summary.narrative || dossier.summary.storyParagraph,
+      readingHook: dossier.summary.readingHook,
+      storyParagraph: dossier.summary.storyParagraph,
       careerEras,
       storyBeats:
         ai.highlights?.map((h) => ({
@@ -152,16 +150,9 @@ export function dossierHasAiChapter(dossier: EntityDossier, navId: WikiSectionNa
 export function mergeAiIntoWikiSection(
   dossier: EntityDossier,
   section: import('../types/entityArticle').ArticleSection,
-  navId?: WikiSectionNavId,
+  _navId?: WikiSectionNavId,
 ): import('../types/entityArticle').ArticleSection {
-  const id = navId ?? (isWikiSectionId(`w/${section.id}`) ? `w/${section.id}` : undefined)
-  const chapter = id ? aiChapterForNavId(dossier, id as WikiSectionNavId) : undefined
-  if (!chapter) {
-    const byTitle = dossier.aiProfile?.chapters.find(
-      (c) => c.title.toLowerCase() === section.title.toLowerCase(),
-    )
-    if (!byTitle) return section
-    return overlaySection(section, byTitle)
-  }
-  return overlaySection(section, chapter)
+  // Reading UX matches Corpus: show Wikipedia sections, not AI rewrites.
+  void dossier
+  return section
 }

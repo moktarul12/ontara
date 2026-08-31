@@ -15,7 +15,7 @@ export function ReaderBrief({
   const aiError = dossier.aiProfile?.generationError
 
   return (
-    <section className="or-brief" id="or-brief">
+    <section className="or-brief" id="ke-section-overview">
       <div className="or-brief-inner">
         <p className="or-kicker">Understand in 30 seconds</p>
         {text ? (

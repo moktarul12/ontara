@@ -1,6 +1,5 @@
 import type { EntityDossier } from '../../types/entityDossier'
 import { buildPersonDashboardData } from '../../services/personDashboardBuilder'
-import { UnderstandSummary } from '../composition/UnderstandSummary'
 import { RelatedKnowledge } from '../composition/RelatedKnowledge'
 import { SourcesProvenance } from '../composition/SourcesProvenance'
 
@@ -49,9 +48,7 @@ export function PersonDashboard({
     <div className={`person-dashboard ${mainOnly ? 'is-main-only' : ''}`}>
       <div className={`person-dashboard-grid ${mainOnly ? 'is-main-only' : ''}`}>
         <main className="person-dashboard-main">
-          {!mainOnly && <UnderstandSummary dossier={dossier} imageUrl={dossier.hero.imageUrl} />}
-
-          {data.highlights.length > 0 ? (
+          {!mainOnly && data.highlights.length > 0 ? (
             <section className="person-glance kx-fact-highlights" id="cat-facts">
               <p className="person-section-label">At a glance</p>
               <div className="person-glance-grid">
@@ -66,7 +63,7 @@ export function PersonDashboard({
                 ))}
               </div>
             </section>
-          ) : dossier.summary.storyBeats.length > 0 ? (
+          ) : !mainOnly && dossier.summary.storyBeats.length > 0 ? (
             <section className="person-glance">
               <p className="person-section-label">At a glance</p>
               <div className="person-glance-grid">
@@ -157,7 +154,7 @@ export function PersonDashboard({
               </section>
             )}
 
-            {data.timeline.length > 0 && (
+            {data.timeline.length > 0 && !mainOnly && (
               <section className="person-card" id="cat-timeline">
                 <header className="person-section-head person-timeline-head">
                   <div>

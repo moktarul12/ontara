@@ -75,12 +75,14 @@ const aiProfile: AiEntityProfile = {
 }
 
 describe('applyAiEntityProfile', () => {
-  it('merges AI summary, timeline, and wiki chapters into dossier', () => {
+  it('merges AI profile into dossier without replacing Wikipedia reading text', () => {
     const out = applyAiEntityProfile(baseDossier(), aiProfile)
     expect(out.aiProfile?.qid).toBe('Q9570')
-    expect(out.summary.storyParagraph).toBe('Full narrative.')
+    expect(out.summary.storyParagraph).toBeUndefined()
+    expect(out.hero.intro).toBeUndefined()
     expect(out.life.timeline).toHaveLength(2)
-    expect(out.wikipedia?.sections[0].paragraphs?.[0]).toBe('AI lead paragraph.')
+    expect(out.wikipedia?.leadText).toBe('Original lead')
+    expect(out.wikipedia?.sections[0].paragraphs?.[0]).toBe('Wiki paragraph')
     expect(out.categoryContent?.summaryNarrative).toBe('Thirty second summary.')
   })
 })

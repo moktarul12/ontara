@@ -111,6 +111,16 @@ export function buildWorkDashboardData(dossier: EntityDossier): WorkDashboardDat
     imdbRating && { icon: '⭐', label: 'IMDb Rating', value: imdbRating },
   ].filter(Boolean) as WorkDashboardData['keyStats']
 
+  if (!keyStats.length && dossier.aiProfile?.highlights?.length) {
+    for (const h of dossier.aiProfile.highlights.slice(0, 5)) {
+      keyStats.push({
+        icon: '✦',
+        label: h.label,
+        value: h.detail.length > 72 ? `${h.detail.slice(0, 69)}…` : h.detail,
+      })
+    }
+  }
+
   const cast: WorkCastMember[] = (
     dossier.works.items.length ? dossier.works.items : castNames.map((name) => ({ title: name }))
   )
@@ -121,6 +131,19 @@ export function buildWorkDashboardData(dossier: EntityDossier): WorkDashboardDat
       imageUrl: w.imageUrl,
       uri: w.uri,
     }))
+
+  if (!cast.length && dossier.aiProfile?.highlights) {
+    const starring = dossier.aiProfile.highlights.find((h) => /starring|cast|ensemble/i.test(h.label))
+    if (starring) {
+      for (const part of starring.detail.split(/,\s*(?:and\s+)?/i)) {
+        const m = part.trim().match(/^([A-Za-z][A-Za-z .'-]+?)(?:\s*\(([^)]+)\))?$/)
+        if (!m) continue
+        const name = m[1].trim()
+        if (name.length < 3) continue
+        cast.push({ name, role: m[2]?.trim() || 'Cast' })
+      }
+    }
+  }
 
   const detailLabels: [string, string[]][] = [
     ['Director', ['director']],

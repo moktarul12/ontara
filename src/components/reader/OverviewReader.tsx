@@ -19,6 +19,11 @@ export function OverviewReader({
   onOpenGraph,
   onLens,
   enriching,
+  onDossierPatch,
+  contentLanguage,
+  languageOptions,
+  onLanguageChange,
+  languageDisabled,
 }: {
   kind: EntityKind
   dossier: EntityDossier
@@ -28,6 +33,11 @@ export function OverviewReader({
   onOpenGraph: () => void
   onLens?: (tab: EntityTab) => void
   enriching?: boolean
+  onDossierPatch?: (patch: (d: EntityDossier) => EntityDossier) => void
+  contentLanguage?: string
+  languageOptions?: { lang: string; label: string }[]
+  onLanguageChange?: (lang: string) => void
+  languageDisabled?: boolean
 }) {
   const isHome = activeSection === 'summary'
   const sectionDef = !isHome ? overviewSectionDef(kind, activeSection, dossier) : undefined
@@ -79,6 +89,11 @@ export function OverviewReader({
       onSection={handleSection}
       onLens={handleLens}
       onOpenGraph={onOpenGraph}
+      contentLanguage={contentLanguage}
+      languageOptions={languageOptions}
+      onLanguageChange={onLanguageChange}
+      languageDisabled={languageDisabled}
+      enriching={enriching}
     >
       {isHome ? (
         <ReaderHomeContent
@@ -86,8 +101,10 @@ export function OverviewReader({
           dossier={dossier}
           enriching={enriching}
           onOpenGraph={onOpenGraph}
+          onSection={handleSection}
           activeWikiChapter={activeWikiChapter}
           onWikiChapterChange={setActiveWikiChapter}
+          onDossierPatch={onDossierPatch}
         />
       ) : (
         <article className="ke-detail-article">

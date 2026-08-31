@@ -708,7 +708,8 @@ export function buildEntityDossier(
   const readingHook = buildReadingHook(article.label, article.kind, verifiedFacts)
   const aiNarrative = synthesizeNarrative(article.label, article.kind, verifiedFacts)
   const storyParagraph =
-    aiNarrative ??
+    leadText ||
+    aiNarrative ||
     buildStoryParagraph(article.label, article.kind, verifiedFacts, about)
 
   const partial: Omit<EntityDossier, 'availableTabs'> = {
@@ -720,7 +721,7 @@ export function buildEntityDossier(
     hero: {
       imageUrl: article.lead.imageUrl,
       subtitle: buildSubtitle(profile),
-      intro: storyParagraph ?? readingHook ?? about ?? profile.description,
+      intro: leadText || storyParagraph || readingHook || about || profile.description,
       metrics: buildHeroMetrics(works.length, awards, profile),
       factPills: buildHeroFactPills(profile),
       quickFactsCard: buildQuickFactsCard(profile, article),
@@ -812,6 +813,8 @@ export function buildEntityDossier(
       sections: article.sections,
       infobox: article.infobox,
       leadText: article.lead.text,
+      leadParagraphs: article.lead.paragraphs,
+      sectionToc: article.wikipediaSectionToc,
       externalLinks: article.externalLinks ?? [],
       categories: article.categories ?? [],
     },

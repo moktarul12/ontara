@@ -27,4 +27,11 @@ describe('factFormatter', () => {
     const f = formatFactDisplay('revenue', ['233715000000', '391035000000', '182795000000'])
     expect(f.display).toBe('$391.0 billion')
   })
+
+  it('formats net profit and market cap', () => {
+    expect(formatFactDisplay('net profit', ['45687000000']).display).toBe('$45.7 billion')
+    expect(formatFactDisplay('market capitalization', ['1000000000000']).display).toBe(
+      '$1.0 trillion',
+    )
+  })
 })

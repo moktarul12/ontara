@@ -6,8 +6,14 @@ import {
 } from '../services/overviewSections'
 import { hashForEntity, overviewSectionFromHash } from '../utils/entityUrl'
 
+function readSectionFromHash(): OverviewSectionId {
+  const slug = overviewSectionFromHash(window.location.hash)
+  const parsed = slug ? parseOverviewSectionSlug(slug) : null
+  return parsed ?? 'summary'
+}
+
 export function useOverviewSection(uri: string | undefined, source: SparqlSourceId) {
-  const [section, setSection] = useState<OverviewSectionId>('summary')
+  const [section, setSection] = useState<OverviewSectionId>(readSectionFromHash)
 
   useEffect(() => {
     const slug = overviewSectionFromHash(window.location.hash)
@@ -33,7 +39,7 @@ export function useOverviewSection(uri: string | undefined, source: SparqlSource
       if (window.location.hash !== hash) {
         window.history.replaceState(null, '', hash)
       }
-      window.scrollTo({ top: 0, behavior: 'smooth' })
+      window.scrollTo({ top: 0, behavior: 'auto' })
     },
     [uri, source],
   )

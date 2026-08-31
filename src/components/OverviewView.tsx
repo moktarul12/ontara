@@ -3,7 +3,6 @@ import type { OntologyStore } from '../hooks/useOntologyStore'
 import { useEntityDossier } from '../hooks/useEntityDossier'
 import {
   fetchEntityLanguageVariants,
-  languageDisplayName,
   pickLanguageVariant,
   type EntityLanguageVariant,
 } from '../services/entityLanguages'
@@ -29,14 +28,19 @@ export function OverviewView({
 }: Props) {
   const rawUri = store.pathRootId || store.config.seedUri
   const uri = rawUri ? canonicalEntityUri(rawUri, store.config.source) : undefined
-  const { dossier, loading, enriching, err } = useEntityDossier(uri, store.config.source, contentLanguage)
   const { section, goToSection } = useOverviewSection(uri, store.config.source)
+  const { dossier, loading, enriching, err, patchDossier } = useEntityDossier(
+    uri,
+    store.config.source,
+    contentLanguage,
+    section,
+  )
 
   const [variants, setVariants] = useState<EntityLanguageVariant[]>([])
 
   useEffect(() => {
-    if (!uri) {
-      setVariants([])
+    if (!uri || loading) {
+      if (!uri) setVariants([])
       return
     }
     let cancelled = false
@@ -53,7 +57,7 @@ export function OverviewView({
     return () => {
       cancelled = true
     }
-  }, [uri, store.config.endpoint, dossier?.label])
+  }, [uri, store.config.endpoint, dossier?.label, loading])
 
   useEffect(() => {
     if (!variants.length) return
@@ -81,28 +85,18 @@ export function OverviewView({
   }
 
   return (
-    <div className="overview-view overview-reader-page">
-      <div className="or-topbar">
-        <select
-          className="or-lang"
-          value={contentLanguage}
-          disabled={variants.length === 0}
-          onChange={(e) => onContentLanguageChange(e.target.value)}
-          aria-label="Content language"
-        >
-          {(variants.length ? variants : [{ lang: contentLanguage, label: displayLabel }]).map((v) => (
-            <option key={v.lang} value={v.lang}>
-              {languageDisplayName(v.lang)}
-            </option>
-          ))}
-        </select>
-        {enriching && <span className="or-topbar-status">AI enriching…</span>}
-      </div>
-
+    <div className="overview-view overview-reader-page corpus-topic-page">
       {loading && !dossier && (
-        <div className="or-loading">
-          <div className="or-loading-hero" aria-hidden />
-          <p>Loading story…</p>
+        <div className="corpus-topic-skeleton" aria-busy="true">
+          <div className="corpus-skeleton-hero" />
+          <div className="corpus-skeleton-line wide" />
+          <div className="corpus-skeleton-line" />
+          <div className="corpus-skeleton-grid">
+            <div />
+            <div />
+            <div />
+            <div />
+          </div>
         </div>
       )}
       {err && <p className="overview-err">{err}</p>}
@@ -116,6 +110,13 @@ export function OverviewView({
           enriching={enriching}
           overviewSection={section}
           onOverviewSection={goToSection}
+          onDossierPatch={patchDossier}
+          contentLanguage={contentLanguage}
+          languageOptions={
+            variants.length ? variants : [{ lang: contentLanguage, label: displayLabel }]
+          }
+          onLanguageChange={onContentLanguageChange}
+          languageDisabled={variants.length === 0}
         />
       )}
     </div>

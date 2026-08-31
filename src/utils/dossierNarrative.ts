@@ -24,6 +24,28 @@ export function resolveSummaryNarrative(dossier: EntityDossier): string | undefi
   )
 }
 
+/** Wikipedia-first lead for article reading (Corpus / Info Hub style). */
+export function resolveArticleLead(dossier: EntityDossier): string | undefined {
+  return pickText(
+    dossier.wikipedia?.leadParagraphs?.[0],
+    dossier.wikipedia?.leadText,
+    dossier.summary.about,
+    dossier.hero.intro,
+    dossier.aiProfile?.summary.thirtySecond,
+    dossier.summary.storyParagraph,
+    dossier.summary.readingHook,
+    dossier.hero.subtitle,
+  )
+}
+
+/** Full Wikipedia lead section for Overview (section 0 paragraphs). */
+export function resolveArticleLeadParagraphs(dossier: EntityDossier): string[] {
+  const fromWiki = dossier.wikipedia?.leadParagraphs?.map((p) => p.trim()).filter(Boolean) ?? []
+  if (fromWiki.length) return fromWiki.map(decodeHtmlEntities)
+  const single = resolveArticleLead(dossier)
+  return single ? [single] : []
+}
+
 /** Section narrative from category template, if present. */
 export function sectionNarrative(
   dossier: EntityDossier,

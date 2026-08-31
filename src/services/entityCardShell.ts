@@ -7,18 +7,18 @@ import {
 import { buildInfobox } from './infoboxBuilder'
 import { claimFactsToInfobox } from './wikidataClaims'
 import { fetchWikidataClaimFacts, qidFromUri } from './wikidataClaims'
-import { fetchWikipediaLead, fetchWikipediaSitelink } from './wikipediaArticle'
-import { WIKIDATA_ENDPOINT } from '../types/ontology'
-import * as wd from './wikidata'
+import { fetchWikipediaLeadShell, fetchWikipediaIntroParagraphs, type WikipediaLeadShell } from './wikipediaArticle'
+import { wikiTocToArticleSections } from './wikiSectionNav'
 import { fetchKindFacetFacts, fetchDbpediaAbstractQuick } from './entityProfile'
-import { fetchWikidataP18Image, upscaleWikiThumb } from './entityImages'
+import { inferKindFromFacts } from './entityKind'
+import { upscaleWikiThumb } from './entityImages'
 import { buildEntityArticle } from './articleBuilder'
 import { fetchWikipediaSupplement } from './wikipediaArticle'
 
 export type CardShell = {
   profile: EntityProfile
   article: EntityArticle
-  wiki: Awaited<ReturnType<typeof fetchWikipediaLead>> | null
+  wiki: WikipediaLeadShell | null
 }
 
 const CACHE = new Map<string, { at: number; shell: CardShell }>()
@@ -46,6 +46,8 @@ function buildMinimalArticle(
     profile.longSummary?.trim() ||
     profile.description?.trim() ||
     ''
+  const leadParagraphs =
+    wiki?.leadParagraphs?.length ? wiki.leadParagraphs : leadText ? [leadText] : undefined
 
   const infoboxFromProfile = buildInfobox(profile, kind)
   const infobox =
@@ -83,6 +85,7 @@ function buildMinimalArticle(
     wikidataUrl: qid ? `https://www.wikidata.org/wiki/${qid}` : undefined,
     lead: {
       text: leadText,
+      paragraphs: leadParagraphs,
       imageUrl: wiki?.leadImage ?? profile.imageUrl,
       source: wiki?.leadText
         ? 'wikipedia'
@@ -93,7 +96,7 @@ function buildMinimalArticle(
             : 'generated',
     },
     infobox,
-    sections: [],
+    sections: wiki?.sectionToc?.length ? wikiTocToArticleSections(wiki.sectionToc) : [],
     references,
     sourcesUsed: [...sourcesUsed],
   }
@@ -127,6 +130,42 @@ function shellProfile(
   }
 }
 
+/** Minimal Wikidata + Wikipedia metadata for instant overview shell (no SPARQL graph). */
+export async function fetchEntitySeedMeta(
+  uri: string,
+  lang: string,
+): Promise<{ label: string; kind: EntityKind; imageUrl?: string }> {
+  const wdUri = normalizeUri(uri)
+  const claims = await fetchWikidataClaimFacts(wdUri, lang)
+  const kind = articleKind(
+    claims.kind && claims.kind !== 'other'
+      ? claims.kind
+      : inferKindFromFacts(claims.facts, claims.description),
+  )
+  return {
+    label: claims.label ?? qidFromUri(wdUri) ?? 'Entity',
+    kind,
+    imageUrl: claims.imageUrl,
+  }
+}
+
+async function fetchWikipediaLeadFast(
+  title: string,
+  lang: string,
+): Promise<WikipediaLeadShell | null> {
+  const [shell, introParagraphs] = await Promise.all([
+    fetchWikipediaLeadShell(title, lang),
+    fetchWikipediaIntroParagraphs(title, lang),
+  ])
+  if (!shell) return null
+  const leadParagraphs = introParagraphs.length ? introParagraphs : shell.leadParagraphs
+  return {
+    ...shell,
+    leadParagraphs,
+    leadText: shell.leadText || introParagraphs[0] || '',
+  }
+}
+
 /** Fast overview shell: Wikidata claims + Wikipedia summary in parallel (~0.5–1.5s). */
 export async function fetchEntityCardShell(uri: string, lang: string): Promise<CardShell> {
   const wdUri = normalizeUri(uri)
@@ -139,20 +178,20 @@ export async function fetchEntityCardShell(uri: string, lang: string): Promise<C
     throw new Error('Overview requires a Wikidata entity (Q-id)')
   }
 
-  const [claims, kind, imageUrl, sitelink, apiImage] = await Promise.all([
-    fetchWikidataClaimFacts(wdUri, lang),
-    wd.wdEntityKind(WIKIDATA_ENDPOINT, wdUri),
-    wd.wdEntityImage(WIKIDATA_ENDPOINT, wdUri, 480),
-    fetchWikipediaSitelink(wdUri, lang),
-    fetchWikidataP18Image(wdUri, 480),
-  ])
+  const claims = await fetchWikidataClaimFacts(wdUri, lang)
 
-  const wiki = sitelink ? await fetchWikipediaLead(sitelink.title, sitelink.lang) : null
+  const wikiTitle = claims.wikipediaTitle
+  const wikiLang = claims.wikipediaLang ?? lang
+  const wiki = wikiTitle ? await fetchWikipediaLeadFast(wikiTitle, wikiLang) : null
   const heroImage =
-    apiImage ?? imageUrl ?? upscaleWikiThumb(wiki?.leadImage, 480) ?? undefined
+    claims.imageUrl ?? upscaleWikiThumb(wiki?.leadImage, 480) ?? undefined
 
-  const entityKind: EntityProfile['kind'] =
-    kind === 'other' ? 'other' : (kind as EntityProfile['kind'])
+  let entityKind: EntityProfile['kind'] =
+    claims.kind && claims.kind !== 'other' ? claims.kind : 'other'
+
+  if (entityKind === 'other') {
+    entityKind = inferKindFromFacts(claims.facts, claims.description ?? wiki?.description)
+  }
 
   const profile = shellProfile(
     wdUri,
@@ -170,42 +209,94 @@ export async function fetchEntityCardShell(uri: string, lang: string): Promise<C
   return shell
 }
 
-/** Background enrich: facet SPARQL + DBpedia abstract (no Wikipedia sections). */
+export type EnrichShellOptions = {
+  includeSections?: boolean
+  includeTables?: boolean
+  fetchSupplement?: boolean
+  skipFacets?: boolean
+}
+
+function enrichCacheKey(uri: string, lang: string, opts: EnrichShellOptions): string {
+  const mode = opts.skipFacets
+    ? 'sources'
+    : opts.includeSections && opts.includeTables
+      ? 'full'
+      : opts.fetchSupplement
+        ? 'light+supp'
+        : 'light'
+  return `${uri}|${lang}|enriched|${mode}`
+}
+
+/** Background enrich: facet SPARQL + DBpedia + optional Wikipedia sections. */
 export async function enrichEntityCardShell(
   shell: CardShell,
   lang: string,
+  opts: EnrichShellOptions = {},
 ): Promise<CardShell> {
+  const includeSections = opts.includeSections ?? true
+  const includeTables = opts.includeTables ?? includeSections
+  const fetchSupplement = opts.fetchSupplement ?? true
+  const skipFacets = opts.skipFacets ?? false
+
   const { profile, wiki } = shell
-  const cacheKey = `${profile.uri}|${lang}|enriched`
+  const cacheKey = enrichCacheKey(profile.uri, lang, { includeSections, includeTables, fetchSupplement, skipFacets })
   const hit = CACHE.get(cacheKey)
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.shell
 
-  const [facetFacts, dbpediaAbstract] = await Promise.all([
-    fetchKindFacetFacts(profile.uri, profile.kind, lang),
-    fetchDbpediaAbstractQuick(profile.uri, lang),
-  ])
+  let kind = profile.kind
+  if (kind === 'other') {
+    kind = inferKindFromFacts(profile.facts, profile.description ?? wiki?.description)
+  }
 
-  const mergedFacts = mergeProfileFacts([...profile.facts, ...facetFacts])
-  const longSummary = dbpediaAbstract || profile.longSummary || wiki?.leadText?.trim()
-  const abstractSource = dbpediaAbstract ? ('dbpedia' as const) : profile.abstractSource
+  let enrichedProfile = profile
+  if (!skipFacets) {
+    const [facetFacts, dbpediaAbstract] = await Promise.all([
+      fetchKindFacetFacts(profile.uri, kind, lang),
+      fetchDbpediaAbstractQuick(profile.uri, lang),
+    ])
 
-  const sourcesUsed = [...new Set([...profile.sourcesUsed, ...mergedFacts.map((f) => f.source)])]
+    const mergedFacts = mergeProfileFacts([...profile.facts, ...facetFacts])
+    const longSummary = dbpediaAbstract || profile.longSummary || wiki?.leadText?.trim()
+    const abstractSource = dbpediaAbstract ? ('dbpedia' as const) : profile.abstractSource
 
-  const enrichedProfile: EntityProfile = {
-    ...profile,
-    facts: mergedFacts,
-    factsByGroup: groupProfileFacts(mergedFacts),
-    longSummary,
-    abstractSource,
-    sourcesUsed,
+    const sourcesUsed = [...new Set([...profile.sourcesUsed, ...mergedFacts.map((f) => f.source)])]
+
+    enrichedProfile = {
+      ...profile,
+      kind,
+      facts: mergedFacts,
+      factsByGroup: groupProfileFacts(mergedFacts),
+      longSummary,
+      abstractSource,
+      sourcesUsed,
+    }
+  }
+
+  const sitelink = wiki
+    ? { title: wiki.title, lang: wiki.lang, url: wiki.url }
+    : null
+
+  let leadWiki = wiki
+  if (wiki?.title && (wiki.leadParagraphs?.length ?? 0) <= 1) {
+    const intro = await fetchWikipediaIntroParagraphs(wiki.title, wiki.lang)
+    if (intro.length) {
+      leadWiki = {
+        ...wiki,
+        leadParagraphs: intro,
+        leadText: wiki.leadText || intro[0],
+        sectionToc: wiki.sectionToc ?? [],
+      }
+    }
   }
 
   const article = await buildEntityArticle(enrichedProfile, lang, {
-    includeSections: true,
-    includeTables: true,
+    includeSections,
+    includeTables,
+    sitelink,
+    leadWiki,
   })
 
-  if (article.wikipediaTitle) {
+  if (fetchSupplement && article.wikipediaTitle) {
     const supplement = await fetchWikipediaSupplement(article.wikipediaTitle, article.language)
     article.externalLinks = supplement.externalLinks
     article.categories = supplement.categories

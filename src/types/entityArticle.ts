@@ -1,4 +1,5 @@
 import type { SparqlSourceId } from './ontology'
+import type { WikipediaSectionTocEntry } from '../services/wikipediaArticle'
 
 export type EntityKind = 'person' | 'org' | 'work' | 'place' | 'other'
 
@@ -48,6 +49,7 @@ export type EntityArticle = {
   wikidataUrl?: string
   lead: {
     text: string
+    paragraphs?: string[]
     imageUrl?: string
     source: 'wikipedia' | 'wikidata' | 'dbpedia' | 'generated'
   }
@@ -57,4 +59,5 @@ export type EntityArticle = {
   sourcesUsed: (SparqlSourceId | 'wikipedia')[]
   externalLinks?: { label: string; url: string }[]
   categories?: string[]
+  wikipediaSectionToc?: WikipediaSectionTocEntry[]
 }

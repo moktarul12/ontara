@@ -1,5 +1,7 @@
+import type { CSSProperties } from 'react'
 import type { EntityDossier, HeroMetric } from '../../types/entityDossier'
 import type { OrgDashboardData } from '../../services/orgDashboardBuilder'
+import { resolveArticleLead } from '../../utils/dossierNarrative'
 
 const METRIC_ICONS: Record<HeroMetric['icon'], string> = {
   film: '📊',
@@ -12,13 +14,6 @@ const PILL_ICONS: Record<string, string> = {
   Founded: '📅',
   Headquarters: '📍',
   Industry: '🏢',
-}
-
-function truncateBio(text: string, max = 220): string {
-  if (text.length <= max) return text
-  const cut = text.slice(0, max)
-  const last = cut.lastIndexOf(' ')
-  return `${(last > 80 ? cut.slice(0, last) : cut).trim()}…`
 }
 
 export function OrgHero({
@@ -34,14 +29,23 @@ export function OrgHero({
   enriching?: boolean
   onOpenGraph: () => void
 }) {
-  const intro = dossier.hero.intro
+  const intro = resolveArticleLead(dossier) ?? dossier.hero.intro
   const tags = orgData.typeTags.length
     ? ['Org', ...orgData.typeTags.filter((t) => t.toLowerCase() !== 'org'), 'Wikidata']
     : ['Org', 'Wikidata']
   const uniqueTags = tags.filter((t, i, arr) => arr.indexOf(t) === i)
 
   return (
-    <section className="entity-hero-wrap org-hero-wrap" id="cat-profile" aria-label="Company profile">
+    <section
+      className="entity-hero-wrap org-hero-wrap ke-v3-hero-wrap"
+      id="cat-profile"
+      aria-label="Company profile"
+      style={
+        dossier.hero.imageUrl
+          ? ({ '--hero-bg': `url(${dossier.hero.imageUrl})` } as CSSProperties)
+          : undefined
+      }
+    >
       <article className="entity-hero-card org-hero-card">
         <div className="entity-hero-card-top">
           <div className="entity-hero-media-wrap">
@@ -83,7 +87,6 @@ export function OrgHero({
             </h1>
 
             {dossier.hero.subtitle && <p className="entity-hero-subtitle">{dossier.hero.subtitle}</p>}
-            {intro && <p className="entity-hero-bio">{truncateBio(intro)}</p>}
 
             {dossier.hero.factPills.length > 0 && (
               <div className="entity-hero-pills">
@@ -103,9 +106,11 @@ export function OrgHero({
           </div>
         </div>
 
+        {intro && <p className="entity-hero-bio entity-hero-lead">{intro}</p>}
+
         {orgData.heroMetrics.length > 0 && (
-          <div className="entity-hero-metrics">
-            {orgData.heroMetrics.slice(0, 4).map((m) => (
+          <div className="entity-hero-metrics org-hero-metrics">
+            {orgData.heroMetrics.map((m) => (
               <div key={m.label} className="entity-hero-metric">
                 <span className="entity-hero-metric-icon" aria-hidden>
                   {METRIC_ICONS[m.icon]}

@@ -1,5 +1,7 @@
+import type { CSSProperties } from 'react'
 import type { EntityDossier, HeroMetric } from '../../types/entityDossier'
 import type { WorkDashboardData } from '../../services/workDashboardBuilder'
+import { resolveArticleLead } from '../../utils/dossierNarrative'
 
 const METRIC_ICONS: Record<HeroMetric['icon'], string> = {
   film: '🎬',
@@ -12,13 +14,6 @@ const PILL_ICONS: Record<string, string> = {
   Released: '📅',
   Genre: '🎭',
   Country: '🌍',
-}
-
-function truncateBio(text: string, max = 220): string {
-  if (text.length <= max) return text
-  const cut = text.slice(0, max)
-  const last = cut.lastIndexOf(' ')
-  return `${(last > 80 ? cut.slice(0, last) : cut).trim()}…`
 }
 
 export function WorkHero({
@@ -34,13 +29,22 @@ export function WorkHero({
   enriching?: boolean
   onOpenGraph: () => void
 }) {
-  const intro = dossier.hero.intro
+  const intro = resolveArticleLead(dossier) ?? dossier.hero.intro
   const tags = workData.genreTags.length
     ? ['Film', ...workData.genreTags.slice(0, 2), 'Wikidata']
     : ['Work', 'Wikidata']
 
   return (
-    <section className="entity-hero-wrap work-hero-wrap" id="cat-profile" aria-label="Film profile">
+    <section
+      className="entity-hero-wrap work-hero-wrap ke-v3-hero-wrap"
+      id="cat-profile"
+      aria-label="Film profile"
+      style={
+        dossier.hero.imageUrl
+          ? ({ '--hero-bg': `url(${dossier.hero.imageUrl})` } as CSSProperties)
+          : undefined
+      }
+    >
       <article className="entity-hero-card work-hero-card">
         <div className="entity-hero-card-top">
           <div className="entity-hero-media-wrap">
@@ -77,7 +81,6 @@ export function WorkHero({
             </h1>
 
             {dossier.hero.subtitle && <p className="entity-hero-subtitle work">{dossier.hero.subtitle}</p>}
-            {intro && <p className="entity-hero-bio">{truncateBio(intro)}</p>}
 
             {dossier.hero.factPills.length > 0 && (
               <div className="entity-hero-pills">
@@ -96,6 +99,8 @@ export function WorkHero({
             )}
           </div>
         </div>
+
+        {intro && <p className="entity-hero-bio entity-hero-lead">{intro}</p>}
 
         {workData.heroMetrics.length > 0 && (
           <div className="entity-hero-metrics">

@@ -1,5 +1,7 @@
 import type { ProfileFact, ProfileFactGroup } from './entityProfile'
 import type { InfoboxRow } from '../types/entityArticle'
+import { classifyKindFromP31, type CuratedEntityKind } from './entityKind'
+import { imageUrlFromEntityClaims } from './entityImages'
 
 const WIKIDATA_API = '/api/wikidata'
 
@@ -59,6 +61,23 @@ const CLAIM_PROPS: { id: string; label: string; group: ProfileFactGroup }[] = [
   { id: 'P112', label: 'founded by', group: 'life' },
 ]
 
+type WbEntity = {
+  labels?: Record<string, { value: string }>
+  descriptions?: Record<string, { value: string }>
+  claims?: Record<string, WbClaim[]>
+  sitelinks?: Record<string, { title: string }>
+}
+
+export type WikidataClaimBundle = {
+  facts: ProfileFact[]
+  description?: string
+  label?: string
+  kind?: CuratedEntityKind
+  wikipediaTitle?: string
+  wikipediaLang?: string
+  imageUrl?: string
+}
+
 type WbClaim = {
   mainsnak: {
     datavalue?: {
@@ -77,12 +96,6 @@ type WbClaim = {
       }
     }[]
   >
-}
-
-type WbEntity = {
-  labels?: Record<string, { value: string }>
-  descriptions?: Record<string, { value: string }>
-  claims?: Record<string, WbClaim[]>
 }
 
 function qidFromUri(uri: string): string | null {
@@ -160,30 +173,49 @@ function pushMilestone(
   })
 }
 
+function p31IdsFromEntity(entity: WbEntity): string[] {
+  return (entity.claims?.P31 ?? [])
+    .map((c) => c.mainsnak?.datavalue?.value)
+    .filter((v): v is { id: string } => !!v && typeof v === 'object' && 'id' in v)
+    .map((v) => v.id)
+}
+
+function wikipediaTitleFromEntity(entity: WbEntity | undefined, lang: string): string | undefined {
+  const site = `${lang}wiki`
+  return entity?.sitelinks?.[site]?.title ?? entity?.sitelinks?.enwiki?.title
+}
+
 /** Fetch structured facts via Wikidata MediaWiki API (reliable when SPARQL is slow). */
 export async function fetchWikidataClaimFacts(
   entityUri: string,
   lang: string,
-): Promise<{ facts: ProfileFact[]; description?: string; label?: string }> {
+): Promise<WikidataClaimBundle> {
   const qid = qidFromUri(entityUri)
   if (!qid) return { facts: [] }
 
-  const url = `${WIKIDATA_API}?action=wbgetentities&ids=${qid}&props=claims|labels|descriptions&languages=${lang}|en&format=json`
+  const url = `${WIKIDATA_API}?action=wbgetentities&ids=${qid}&props=claims|labels|descriptions|sitelinks&languages=${lang}|en&format=json`
   const res = await fetch(url)
   if (!res.ok) return { facts: [] }
 
   const data = (await res.json()) as { entities?: Record<string, WbEntity> }
   const entity = data.entities?.[qid]
+  const imageUrl = await imageUrlFromEntityClaims(entity, 480)
   if (!entity?.claims) {
+    const wikiTitle = wikipediaTitleFromEntity(entity, lang)
     return {
       facts: [],
       label: labelFromEntity(entity, lang),
       description: entity?.descriptions?.[lang]?.value ?? entity?.descriptions?.en?.value,
+      kind: entity ? classifyKindFromP31(p31IdsFromEntity(entity)) : undefined,
+      wikipediaTitle: wikiTitle,
+      wikipediaLang: wikiTitle ? lang : undefined,
+      imageUrl,
     }
   }
 
   const label = labelFromEntity(entity, lang)
   const description = entity.descriptions?.[lang]?.value ?? entity.descriptions?.en?.value
+  const kind = classifyKindFromP31(p31IdsFromEntity(entity))
 
   const entityIds = new Set<string>()
   const rawFacts: {
@@ -274,7 +306,16 @@ export async function fetchWikidataClaimFacts(
     pushMilestone(facts, seen, year, `${ceo} becomes CEO`)
   }
 
-  return { facts, description, label }
+  const wikiTitle = wikipediaTitleFromEntity(entity, lang)
+  return {
+    facts,
+    description,
+    label,
+    kind,
+    wikipediaTitle: wikiTitle,
+    wikipediaLang: wikiTitle ? lang : undefined,
+    imageUrl,
+  }
 }
 
 export function claimFactsToInfobox(facts: ProfileFact[]): InfoboxRow[] {

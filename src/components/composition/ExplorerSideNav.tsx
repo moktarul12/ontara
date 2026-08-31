@@ -97,9 +97,9 @@ export function ExplorerSideNav({
 
       <div className="ke-side-promo">
         <strong>Understand anything faster</strong>
-        <p>AI summary from Wikipedia, Wikidata &amp; DBpedia</p>
-        <button type="button" className="ke-side-promo-btn" onClick={() => onSection('ai')}>
-          Read AI summary
+        <p>Structured facts from Wikipedia, Wikidata &amp; DBpedia</p>
+        <button type="button" className="ke-side-promo-btn" onClick={() => onSection('article')}>
+          Read full article
         </button>
       </div>
     </nav>

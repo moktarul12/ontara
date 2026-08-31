@@ -1,6 +1,5 @@
 import type { EntityDossier } from '../../types/entityDossier'
 import { buildOrgDashboardData } from '../../services/orgDashboardBuilder'
-import { UnderstandSummary } from '../composition/UnderstandSummary'
 import { RelatedKnowledge } from '../composition/RelatedKnowledge'
 import { SourcesProvenance } from '../composition/SourcesProvenance'
 
@@ -41,9 +40,7 @@ export function OrgDashboard({
     <div className={`org-dashboard ${mainOnly ? 'is-main-only' : ''}`}>
       <div className={`org-dashboard-grid ${mainOnly ? 'is-main-only' : ''}`}>
         <main className="org-dashboard-main">
-          {!mainOnly && <UnderstandSummary dossier={dossier} imageUrl={dossier.hero.imageUrl} />}
-
-          {data.highlights.length > 0 && (
+          {!mainOnly && data.highlights.length > 0 && (
             <section className="org-highlights kx-fact-highlights" id="cat-facts">
               {data.highlights.map((h) => (
                 <article key={h.label} className="org-highlight-card">
@@ -81,7 +78,7 @@ export function OrgDashboard({
             </section>
           )}
 
-          {data.timeline.length > 0 && (
+          {data.timeline.length > 0 && !mainOnly && (
             <section className="org-card org-history-card" id="cat-history">
               <header className="org-section-head">
                 <h2>Company History</h2>

@@ -4,6 +4,7 @@ import type { EntityDossier } from '../types/entityDossier'
 import { buildOrgDashboardData } from './orgDashboardBuilder'
 import { buildPersonDashboardData } from './personDashboardBuilder'
 import { buildWorkDashboardData } from './workDashboardBuilder'
+import { corpusTimelineCount } from './corpusTimelineBuilder'
 
 import {
   findWikiSectionByNavId,
@@ -549,15 +550,7 @@ const VISIBILITY: Record<OverviewSectionId, SectionVisibility> = {
       Boolean(d.wikipedia?.leadText && d.wikipedia.leadText.length > 280)),
   external: (d) => (d.wikipedia?.externalLinks.length ?? 0) > 0,
   filmography: (d) => d.kind === 'person' && d.works.totalCount > 5,
-  ai: (d) =>
-    Boolean(
-      d.categoryContent?.summaryNarrative ||
-        d.summary.storyParagraph ||
-        d.summary.about ||
-        d.hero.intro ||
-        d.categoryContent?.sections?.some((s) => s.narrative) ||
-        d.summary.readingHook,
-    ),
+  ai: () => false,
   facts: (d) => {
     if (d.kind === 'person') {
       const data = buildPersonDashboardData(d)
@@ -634,12 +627,7 @@ const COUNTS: Partial<Record<OverviewSectionId, SectionCount>> = {
   career: (d) => d.summary.careerEras.length || undefined,
   works: (d) => d.summary.topWorks.length || d.works.totalCount || undefined,
   honours: (d) => d.summary.topAwards.length || undefined,
-  timeline: (d) => {
-    if (d.kind === 'person') return buildPersonDashboardData(d).timeline.length || undefined
-    if (d.kind === 'org') return buildOrgDashboardData(d).timeline.length || undefined
-    if (d.kind === 'work') return buildWorkDashboardData(d).timeline.length || undefined
-    return undefined
-  },
+  timeline: (d) => corpusTimelineCount(d) || undefined,
   family: (d) => d.family.members.length || undefined,
   financials: (d) => {
     if (d.kind !== 'org') return undefined

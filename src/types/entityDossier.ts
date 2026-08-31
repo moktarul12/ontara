@@ -1,6 +1,7 @@
 import type { EntityKind, ArticleSection, InfoboxRow } from './entityArticle'
 import type { CategoryContent } from './entityTemplate'
 import type { AiEntityProfile } from './aiEntityProfile'
+import type { WikipediaSectionTocEntry } from '../services/wikipediaArticle'
 
 export type DossierTabId =
   | 'summary'
@@ -17,6 +18,8 @@ export type WikipediaContent = {
   sections: ArticleSection[]
   infobox: InfoboxRow[]
   leadText: string
+  leadParagraphs?: string[]
+  sectionToc?: WikipediaSectionTocEntry[]
   externalLinks: WikipediaLink[]
   categories: string[]
 }
