@@ -19,5 +19,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "vite.proxy.ts", "aiSynthesize.mjs", "aiSynthesize.mjs.d.ts", "aiSynthesize.types.ts"]
+  "include": ["vite.config.ts", "vite.proxy.ts", "loadEnv.mjs.d.ts", "aiSynthesize.mjs", "aiSynthesize.mjs.d.ts", "aiSynthesize.types.ts"]
 }

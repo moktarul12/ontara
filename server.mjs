@@ -6,6 +6,13 @@ import { loadEnv } from './loadEnv.mjs'
 loadEnv()
 import { handleAiSynthesize } from './aiSynthesize.mjs'
 import { getCachedEntityProfile, handleAiEntityProfile } from './aiEntityProfile.mjs'
+import {
+  cachedUpstream,
+  cacheKeyFromSparql,
+  cacheKeyFromUrl,
+  cacheStats,
+  TTL,
+} from './apiCache.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const dist = path.join(__dirname, 'dist')
@@ -22,8 +29,15 @@ const app = express()
 app.use(express.json({ limit: '256kb' }))
 
 app.get('/health', (_req, res) => {
-  res.status(200).json({ ok: true })
+  res.status(200).json({ ok: true, cache: cacheStats() })
 })
+
+function sendCached(res, pack) {
+  if (pack.contentType) res.setHeader('Content-Type', pack.contentType)
+  res.setHeader('X-Cache', pack.cacheHit ?? 'MISS')
+  res.status(pack.status)
+  res.send(pack.body)
+}
 
 async function proxySparql(upstreamUrl, req, res) {
   try {
@@ -35,31 +49,37 @@ async function proxySparql(upstreamUrl, req, res) {
       }
     }
 
-    const headers = {
-      Accept: req.headers.accept || 'application/sparql-results+json',
-      'User-Agent': UA,
-    }
-
     let body
     if (req.method === 'POST') {
       const chunks = []
       for await (const chunk of req) chunks.push(chunk)
       body = Buffer.concat(chunks)
-      if (req.headers['content-type']) {
-        headers['Content-Type'] = req.headers['content-type']
-      }
     }
 
-    const upstreamRes = await fetch(upstream, {
-      method: req.method === 'POST' ? 'POST' : 'GET',
-      headers,
-      body: req.method === 'POST' ? body : undefined,
-    })
+    const cacheKey = cacheKeyFromSparql(req.method, upstream, body)
+    const headers = {
+      Accept: req.headers.accept || 'application/sparql-results+json',
+      'User-Agent': UA,
+    }
 
-    const contentType = upstreamRes.headers.get('content-type')
-    if (contentType) res.setHeader('Content-Type', contentType)
-    res.status(upstreamRes.status)
-    res.send(Buffer.from(await upstreamRes.arrayBuffer()))
+    const pack = await cachedUpstream(
+      cacheKey,
+      TTL.sparql,
+      async () => {
+        const fetchHeaders = { ...headers }
+        if (req.method === 'POST' && req.headers['content-type']) {
+          fetchHeaders['Content-Type'] = req.headers['content-type']
+        }
+        return fetch(upstream, {
+          method: req.method === 'POST' ? 'POST' : 'GET',
+          headers: fetchHeaders,
+          body: req.method === 'POST' ? body : undefined,
+        })
+      },
+      { isSparql: true },
+    )
+
+    sendCached(res, pack)
   } catch (err) {
     console.error('SPARQL proxy error', err)
     res.status(502).json({
@@ -130,6 +150,91 @@ app.post('/api/ai/entity/:qid', async (req, res) => {
   }
 })
 
+/**
+ * Fast bundled overview shell — Wikidata claims + Wikipedia lead in one round trip.
+ * Server runs upstream calls in parallel with cache.
+ */
+app.get('/api/entity/:qid/shell', async (req, res) => {
+  const qid = String(req.params.qid || '').toUpperCase()
+  const lang = String(req.query.lang || 'en')
+  if (!/^Q\d+$/.test(qid)) {
+    res.status(400).json({ error: 'Invalid Q-id' })
+    return
+  }
+
+  try {
+    const wdUrl = new URL('https://www.wikidata.org/w/api.php')
+    wdUrl.searchParams.set('action', 'wbgetentities')
+    wdUrl.searchParams.set('ids', qid)
+    wdUrl.searchParams.set('props', 'claims|labels|descriptions|sitelinks')
+    wdUrl.searchParams.set('languages', `${lang}|en`)
+    wdUrl.searchParams.set('format', 'json')
+
+    const wdKey = cacheKeyFromUrl(wdUrl)
+    const wdPack = await cachedUpstream(wdKey, TTL.wikidata, () =>
+      fetch(wdUrl, { headers: { 'User-Agent': UA, Accept: 'application/json' } }),
+    )
+
+        if (wdPack.status >= 400) {
+          res.status(wdPack.status).send(wdPack.body)
+          return
+        }
+
+    const wdJson = JSON.parse(wdPack.body.toString('utf8'))
+    const entity = wdJson?.entities?.[qid]
+    const siteKey = `${lang}wiki`
+    const wikiTitle =
+      entity?.sitelinks?.[siteKey]?.title ?? entity?.sitelinks?.enwiki?.title ?? null
+
+    let wiki = null
+    if (wikiTitle) {
+      const encoded = encodeURIComponent(wikiTitle.replace(/ /g, '_'))
+      const summaryUrl = new URL(`https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encoded}`)
+      const tocUrl = new URL(`https://${lang}.wikipedia.org/w/api.php`)
+      tocUrl.searchParams.set('action', 'parse')
+      tocUrl.searchParams.set('page', wikiTitle)
+      tocUrl.searchParams.set('prop', 'sections')
+      tocUrl.searchParams.set('format', 'json')
+      const introUrl = new URL(`https://${lang}.wikipedia.org/w/api.php`)
+      introUrl.searchParams.set('action', 'parse')
+      introUrl.searchParams.set('page', wikiTitle)
+      introUrl.searchParams.set('section', '0')
+      introUrl.searchParams.set('prop', 'text')
+      introUrl.searchParams.set('formatversion', '2')
+      introUrl.searchParams.set('format', 'json')
+
+      const [summaryPack, tocPack, introPack] = await Promise.all([
+        cachedUpstream(cacheKeyFromUrl(summaryUrl), TTL.wikipedia, () =>
+          fetch(summaryUrl, { headers: { 'User-Agent': UA, Accept: 'application/json' } }),
+        ),
+        cachedUpstream(cacheKeyFromUrl(tocUrl), TTL.mediawiki, () =>
+          fetch(tocUrl, { headers: { 'User-Agent': UA, Accept: 'application/json' } }),
+        ),
+        cachedUpstream(cacheKeyFromUrl(introUrl), TTL.mediawiki, () =>
+          fetch(introUrl, { headers: { 'User-Agent': UA, Accept: 'application/json' } }),
+        ),
+      ])
+
+      wiki = {
+        summary: summaryPack.ok ? JSON.parse(summaryPack.body.toString('utf8')) : null,
+        toc: tocPack.ok ? JSON.parse(tocPack.body.toString('utf8')) : null,
+        intro: introPack.ok ? JSON.parse(introPack.body.toString('utf8')) : null,
+        title: wikiTitle,
+        lang,
+      }
+    }
+
+    res.setHeader('X-Cache', wdPack.cacheHit)
+    res.json({ qid, lang, wikidata: wdJson, wiki })
+  } catch (err) {
+    console.error('Entity shell error', err)
+    res.status(502).json({
+      error: 'Entity shell failed',
+      detail: err instanceof Error ? err.message : String(err),
+    })
+  }
+})
+
 /** Fast entity search — Wikidata MediaWiki API */
 app.get('/api/wikidata', async (req, res) => {
   try {
@@ -137,13 +242,11 @@ app.get('/api/wikidata', async (req, res) => {
     for (const [k, v] of Object.entries(req.query)) {
       if (typeof v === 'string') upstream.searchParams.set(k, v)
     }
-    const upstreamRes = await fetch(upstream, {
-      headers: { 'User-Agent': UA, Accept: 'application/json' },
-    })
-    const contentType = upstreamRes.headers.get('content-type')
-    if (contentType) res.setHeader('Content-Type', contentType)
-    res.status(upstreamRes.status)
-    res.send(Buffer.from(await upstreamRes.arrayBuffer()))
+    const cacheKey = cacheKeyFromUrl(upstream)
+    const pack = await cachedUpstream(cacheKey, TTL.wikidata, () =>
+      fetch(upstream, { headers: { 'User-Agent': UA, Accept: 'application/json' } }),
+    )
+    sendCached(res, pack)
   } catch (err) {
     console.error('Wikidata API proxy error', err)
     res.status(502).json({
@@ -166,13 +269,11 @@ app.use(async (req, res, next) => {
     for (const [k, v] of Object.entries(req.query)) {
       if (typeof v === 'string') upstream.searchParams.set(k, v)
     }
-    const upstreamRes = await fetch(upstream, {
-      headers: { 'User-Agent': UA, Accept: 'application/json' },
-    })
-    const contentType = upstreamRes.headers.get('content-type')
-    if (contentType) res.setHeader('Content-Type', contentType)
-    res.status(upstreamRes.status)
-    res.send(Buffer.from(await upstreamRes.arrayBuffer()))
+    const cacheKey = cacheKeyFromUrl(upstream)
+    const pack = await cachedUpstream(cacheKey, TTL.mediawiki, () =>
+      fetch(upstream, { headers: { 'User-Agent': UA, Accept: 'application/json' } }),
+    )
+    sendCached(res, pack)
   } catch (err) {
     console.error('MediaWiki API proxy error', err)
     res.status(502).json({
@@ -196,13 +297,11 @@ app.use(async (req, res, next) => {
     for (const [k, v] of Object.entries(req.query)) {
       if (typeof v === 'string') upstream.searchParams.set(k, v)
     }
-    const upstreamRes = await fetch(upstream, {
-      headers: { 'User-Agent': UA, Accept: 'application/json' },
-    })
-    const contentType = upstreamRes.headers.get('content-type')
-    if (contentType) res.setHeader('Content-Type', contentType)
-    res.status(upstreamRes.status)
-    res.send(Buffer.from(await upstreamRes.arrayBuffer()))
+    const cacheKey = cacheKeyFromUrl(upstream)
+    const pack = await cachedUpstream(cacheKey, TTL.wikipedia, () =>
+      fetch(upstream, { headers: { 'User-Agent': UA, Accept: 'application/json' } }),
+    )
+    sendCached(res, pack)
   } catch (err) {
     console.error('Wikipedia API proxy error', err)
     res.status(502).json({

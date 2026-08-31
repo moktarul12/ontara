@@ -68,7 +68,7 @@ export function dossierBackgroundEnrichPlan(): DossierLoadPlan {
     includeSections: false,
     includeTables: true,
     fetchSupplement: true,
-    deferAi: false,
+    deferAi: true,
     skipFacets: false,
   }
 }

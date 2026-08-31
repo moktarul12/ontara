@@ -6,14 +6,14 @@ import {
 } from './entityProfile'
 import { buildInfobox } from './infoboxBuilder'
 import { claimFactsToInfobox } from './wikidataClaims'
-import { fetchWikidataClaimFacts, qidFromUri } from './wikidataClaims'
-import { fetchWikipediaLeadShell, fetchWikipediaIntroParagraphs, type WikipediaLeadShell } from './wikipediaArticle'
+import { fetchWikidataClaimFacts, qidFromUri, type WbEntity } from './wikidataClaims'
+import { htmlToParagraphs, htmlToPlainText } from '../utils/htmlToText'
+import { fetchWikipediaLeadShell, fetchWikipediaIntroParagraphs, fetchWikipediaSupplement, type WikipediaLeadShell } from './wikipediaArticle'
 import { wikiTocToArticleSections } from './wikiSectionNav'
 import { fetchKindFacetFacts, fetchDbpediaAbstractQuick } from './entityProfile'
 import { inferKindFromFacts } from './entityKind'
 import { upscaleWikiThumb } from './entityImages'
 import { buildEntityArticle } from './articleBuilder'
-import { fetchWikipediaSupplement } from './wikipediaArticle'
 
 export type CardShell = {
   profile: EntityProfile
@@ -97,6 +97,7 @@ function buildMinimalArticle(
     },
     infobox,
     sections: wiki?.sectionToc?.length ? wikiTocToArticleSections(wiki.sectionToc) : [],
+    wikipediaSectionToc: wiki?.sectionToc,
     references,
     sourcesUsed: [...sourcesUsed],
   }
@@ -153,16 +154,79 @@ async function fetchWikipediaLeadFast(
   title: string,
   lang: string,
 ): Promise<WikipediaLeadShell | null> {
-  const [shell, introParagraphs] = await Promise.all([
-    fetchWikipediaLeadShell(title, lang),
-    fetchWikipediaIntroParagraphs(title, lang),
-  ])
-  if (!shell) return null
-  const leadParagraphs = introParagraphs.length ? introParagraphs : shell.leadParagraphs
+  return fetchWikipediaLeadShell(title, lang)
+}
+
+async function fetchEntityShellBundle(qid: string, lang: string) {
+  const res = await fetch(`/api/entity/${qid}/shell?lang=${encodeURIComponent(lang)}`)
+  if (!res.ok) return null
+  return res.json() as Promise<{
+    qid: string
+    lang: string
+    wikidata: { entities?: Record<string, unknown> }
+    wiki?: {
+      title: string
+      lang: string
+      summary?: {
+        title?: string
+        description?: string
+        extract?: string
+        thumbnail?: { source?: string }
+        content_urls?: { desktop?: { page?: string } }
+      }
+      toc?: { parse?: { sections?: { index: string; line: string; level: string; anchor: string }[] } }
+      intro?: { parse?: { text?: string } }
+    } | null
+  }>
+}
+
+function wikiLeadFromBundle(
+  wiki: NonNullable<Awaited<ReturnType<typeof fetchEntityShellBundle>>>['wiki'],
+): WikipediaLeadShell | null {
+  if (!wiki?.title) return null
+  const summary = wiki.summary
+  const pageTitle = summary?.title ?? wiki.title
+  const url =
+    summary?.content_urls?.desktop?.page ??
+    `https://${wiki.lang}.wikipedia.org/wiki/${encodeURIComponent(pageTitle.replace(/ /g, '_'))}`
+
+  const introParagraphs = wiki.intro?.parse?.text
+    ? htmlToParagraphs(wiki.intro.parse.text)
+        .map((p) => p.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim())
+        .filter((p) => p.length > 12)
+    : []
+
+  let leadText = summary?.extract?.trim() ?? ''
+  if (leadText) {
+    leadText = htmlToPlainText(`<p>${leadText}</p>`)
+    leadText = leadText.replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim()
+  }
+
+  const leadParagraphs =
+    introParagraphs.length > 0 ? introParagraphs : leadText ? [leadText] : []
+  if (!leadText && leadParagraphs.length) leadText = leadParagraphs[0]
+
+  const sectionToc = (wiki.toc?.parse?.sections ?? [])
+    .filter((s) => s.line && !/^(references|external links|see also|notes|further reading|bibliography|sources|footnotes|citations)$/i.test(s.line.trim()))
+    .map((s) => {
+      const lv = parseInt(s.level, 10)
+      return {
+        index: s.index,
+        title: s.line.trim(),
+        level: (lv <= 2 ? 2 : lv === 3 ? 3 : 4) as 2 | 3 | 4,
+        anchor: s.anchor,
+      }
+    })
+
   return {
-    ...shell,
+    title: pageTitle,
+    lang: wiki.lang,
+    url,
+    description: summary?.description,
+    leadText,
     leadParagraphs,
-    leadText: shell.leadText || introParagraphs[0] || '',
+    sectionToc,
+    leadImage: summary?.thumbnail?.source,
   }
 }
 
@@ -178,11 +242,20 @@ export async function fetchEntityCardShell(uri: string, lang: string): Promise<C
     throw new Error('Overview requires a Wikidata entity (Q-id)')
   }
 
-  const claims = await fetchWikidataClaimFacts(wdUri, lang)
+  const bundle = await fetchEntityShellBundle(qid, lang)
+  let claims
+  let wiki: WikipediaLeadShell | null = null
 
-  const wikiTitle = claims.wikipediaTitle
-  const wikiLang = claims.wikipediaLang ?? lang
-  const wiki = wikiTitle ? await fetchWikipediaLeadFast(wikiTitle, wikiLang) : null
+  if (bundle?.wikidata?.entities?.[qid]) {
+    claims = await fetchWikidataClaimFacts(wdUri, lang, bundle.wikidata.entities[qid] as WbEntity)
+    wiki = bundle.wiki ? wikiLeadFromBundle(bundle.wiki) : null
+  } else {
+    claims = await fetchWikidataClaimFacts(wdUri, lang)
+    const wikiTitle = claims.wikipediaTitle
+    const wikiLang = claims.wikipediaLang ?? lang
+    wiki = wikiTitle ? await fetchWikipediaLeadFast(wikiTitle, wikiLang) : null
+  }
+
   const heroImage =
     claims.imageUrl ?? upscaleWikiThumb(wiki?.leadImage, 480) ?? undefined
 

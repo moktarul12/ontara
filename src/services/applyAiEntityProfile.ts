@@ -1,52 +1,7 @@
 import type { AiEntityProfile } from '../types/aiEntityProfile'
 import type { EntityDossier } from '../types/entityDossier'
-import type { ArticleSection } from '../types/entityArticle'
 import type { CategoryContent } from '../types/entityTemplate'
-import { isWikiSectionId, type WikiSectionNavId } from '../services/wikiSectionNav'
-import { normalizeSectionParagraphs } from '../utils/sectionParagraphs'
-
-function overlaySection(section: ArticleSection, chapter: AiEntityProfile['chapters'][0]): ArticleSection {
-  const paragraphs = normalizeSectionParagraphs([
-    chapter.lead,
-    ...(chapter.paragraphs ?? []),
-  ].filter(Boolean))
-
-  const children = section.children.map((child) => {
-    const sub = chapter.subsections?.find(
-      (s) => s.title.toLowerCase() === child.title.toLowerCase(),
-    )
-    if (!sub) return child
-    const subParas = normalizeSectionParagraphs(sub.paragraphs ?? [])
-    return {
-      ...child,
-      paragraphs: subParas,
-      prose: subParas.join('\n\n'),
-    }
-  })
-
-  return {
-    ...section,
-    paragraphs,
-    prose: paragraphs.join('\n\n'),
-    children,
-    source: 'generated' as const,
-  }
-}
-
-function overlayWikiTree(sections: ArticleSection[], chapters: AiEntityProfile['chapters']): ArticleSection[] {
-  const byId = new Map(chapters.map((c) => [c.id, c]))
-  const byTitle = new Map(chapters.map((c) => [c.title.toLowerCase(), c]))
-
-  const walk = (list: ArticleSection[]): ArticleSection[] =>
-    list.map((s) => {
-      const chapter = byId.get(s.id) ?? byTitle.get(s.title.toLowerCase())
-      let next = s
-      if (chapter) next = overlaySection(s, chapter)
-      return { ...next, children: walk(next.children) }
-    })
-
-  return walk(sections)
-}
+import { type WikiSectionNavId } from '../services/wikiSectionNav'
 
 /** Merge cached OpenAI profile into dossier for display. */
 export function applyAiEntityProfile(dossier: EntityDossier, ai: AiEntityProfile): EntityDossier {

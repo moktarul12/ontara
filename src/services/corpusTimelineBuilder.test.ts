@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EntityDossier } from '../types/entityDossier'
-import { buildCorpusTimeline, corpusTimelineCount } from './corpusTimelineBuilder'
+import { buildCorpusTimeline, corpusTimelineCount, parseYearMonth } from './corpusTimelineBuilder'
 import { buildCorpusDataStats } from './corpusDataBuilder'
 
 function miniDossier(overrides: Partial<EntityDossier> = {}): EntityDossier {
@@ -53,6 +53,30 @@ describe('corpusTimelineBuilder', () => {
     expect(data.years[0].year).toBe(2024)
     expect(data.years.some((y) => y.year === 1975)).toBe(true)
     expect(corpusTimelineCount(dossier)).toBe(data.totalDated)
+  })
+
+  it('parses month from dated strings and nests under year', () => {
+    expect(parseYearMonth('March 25, 1921')).toEqual({
+      year: 1921,
+      month: 3,
+      monthLabel: 'March',
+    })
+    expect(parseYearMonth('1975')).toEqual({ year: 1975 })
+
+    const dossier = miniDossier({
+      life: {
+        timeline: [
+          { label: 'Born', year: 'March 25, 1921', detail: 'Birth in Mumbai' },
+          { label: 'Debut', year: '1975', detail: 'Film debut' },
+        ],
+        facts: [],
+      },
+    })
+    const data = buildCorpusTimeline(dossier)
+    const y1921 = data.years.find((y) => y.year === 1921)
+    expect(y1921?.months.some((m) => m.monthLabel === 'March')).toBe(true)
+    const y1975 = data.years.find((y) => y.year === 1975)
+    expect(y1975?.months.some((m) => m.monthLabel === 'General')).toBe(true)
   })
 })
 

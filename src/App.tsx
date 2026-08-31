@@ -95,12 +95,6 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    if (entityTab === 'overview' && isResource && !fullscreen) {
-      setRailCollapsed(false)
-    }
-  }, [entityTab, isResource, fullscreen])
-
-  useEffect(() => {
     if (!isResource || !store.config.seedUri) return
     if (window.location.hash.includes('/map/')) return
     const next = hashForEntityTab(
@@ -174,8 +168,7 @@ export default function App() {
   useEffect(() => {
     if (!hasGraph || !store.pathRootId || fullscreen) return
     void store.selectNode(store.pathRootId)
-    const view = entityViewFromHash(window.location.hash, store.config.source)
-    if (view !== 'overview') setRailCollapsed(true)
+    setRailCollapsed(true)
 
     const journey = pendingJourney.current
     if (journey) {
@@ -364,6 +357,7 @@ export default function App() {
         void store.ensureKnowledgeGraph(uri)
       }
       if (tab === 'overview') {
+        setRailCollapsed(true)
         const h = hashForEntityTab(uri, store.config.source, 'overview')
         if (window.location.hash !== h) window.history.replaceState(null, '', h)
       } else if (tab === 'graph' || tab === 'family' || tab === 'movie') {

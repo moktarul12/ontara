@@ -98,7 +98,7 @@ export function wikiSectionNavDefs(dossier: EntityDossier): OverviewSectionDef[]
   if (intro) {
     defs.push({
       id: INTRO_ID,
-      navLabel: 'Introduction',
+      navLabel: 'Overview',
       icon: '¶',
       group: 'wiki',
       title: 'Introduction',

@@ -20,6 +20,12 @@ import {
   atlasShape,
 } from '../utils/nodeKind'
 import { graphHasOntologyHubs } from '../utils/treeLayout'
+import {
+  buildKinMaps,
+  buildPedigreeEdges,
+  generationLabel,
+  roleBadge,
+} from '../utils/familyTreeGraph'
 import { GraphLegend } from './GraphLegend'
 
 cytoscape.use(coseBilkent)
@@ -249,6 +255,119 @@ function buildElements(data: GraphData): ElementDefinition[] {
   return [...nodes, ...links]
 }
 
+/** Pedigree view: people only, labeled parent/spouse/sibling edges (no hub chips). */
+function buildFamilyPedigreeElements(data: GraphData): ElementDefinition[] {
+  const maps = buildKinMaps(data)
+  const pedEdges = buildPedigreeEdges(data, maps)
+  const rootId =
+    maps.people.find((n) => n.__familyRole === 'seed')?.id ??
+    maps.people.find((n) => (n.__familyGen ?? 0) === 0)?.id ??
+    maps.people[0]?.id
+
+  const nodes: ElementDefinition[] = maps.people.map((n) => {
+    const hop = Math.min(5, Math.max(0, n.__hopDepth ?? 0))
+    const colors = ontologyNodeColors(n)
+    const isRoot = n.id === rootId
+    const hasImage = Boolean(n.__imageUrl)
+    const card = informativeCard(n, { root: isRoot, degree: 0, childCount: 0 })
+    const gen = n.__familyGen ?? 0
+    const badge = roleBadge(n.__familyRole)
+    const subtitle = [badge, generationLabel(gen)].filter(Boolean).join(' · ')
+    const boxW = isRoot ? (hasImage ? 132 : 112) : hasImage ? 108 : 100
+    const boxH = isRoot ? (hasImage ? 132 : 72) : hasImage ? 112 : 64
+    const displayLabel = badge ? `${card.label}\n${badge}` : card.label
+
+    return {
+      group: 'nodes',
+      data: {
+        id: n.id,
+        label: displayLabel,
+        fullLabel: n.label,
+        subtitle,
+        kind: 'person',
+        hopDepth: hop,
+        nodeType: 'resource',
+        uri: n.uri,
+        familyRole: n.__familyRole ?? '',
+        familyGen: gen,
+        boxW,
+        boxH,
+        textMax: boxW - 16,
+        fill: colors.fill,
+        border: colors.border,
+        textColor: colors.text,
+        imageUrl: n.__imageUrl ?? '',
+        atlasShape: 'ellipse',
+      },
+      classes: [
+        'kind-person',
+        'is-person',
+        isRoot ? 'is-root family-seed' : '',
+        hasImage ? 'has-image' : '',
+        n.__familyRole ? `family-role-${n.__familyRole}` : '',
+        `family-gen-${gen >= 0 ? gen : `u${Math.abs(gen)}`}`,
+      ]
+        .filter(Boolean)
+        .join(' '),
+      style: {
+        width: boxW,
+        height: boxH,
+        'background-color': colors.fill,
+        'border-color': isRoot ? '#c07818' : colors.border,
+        color: colors.text,
+        shape: 'ellipse',
+        'text-max-width': boxW - 16,
+        ...(hasImage
+          ? {
+              'background-image': n.__imageUrl,
+              'background-image-crossorigin': 'anonymous',
+              'background-fit': 'cover',
+              'background-clip': 'node',
+              'text-valign': 'bottom',
+              'text-margin-y': 8,
+              'text-background-color': '#ffffff',
+              'text-background-opacity': 0.92,
+              'text-background-padding': '3px',
+              'text-background-shape': 'roundrectangle',
+            }
+          : {}),
+      },
+    }
+  })
+
+  const edges: ElementDefinition[] = pedEdges.map((e) => {
+    const lateral = e.relation === 'spouse' || e.relation === 'sibling'
+    const parentLine =
+      e.relation === 'father' ||
+      e.relation === 'mother' ||
+      e.relation === 'parent' ||
+      e.relation === 'child'
+    return {
+      group: 'edges',
+      data: {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        label: e.label,
+        fullLabel: e.label,
+        relation: e.relation,
+        edgeHop: 1,
+        flow: lateral ? 'lateral' : 'down',
+      },
+      classes: [
+        'pedigree-edge',
+        `pedigree-${e.relation}`,
+        lateral ? 'pedigree-lateral' : 'pedigree-vertical',
+        parentLine ? 'kin-edge tree-trunk' : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    }
+  })
+
+  return [...nodes, ...edges]
+}
+
 const CY_STYLE = [
   {
     selector: 'node',
@@ -328,6 +447,91 @@ const CY_STYLE = [
       opacity: 0.8,
       'line-color': 'rgba(10, 90, 84, 0.62)',
     },
+  },
+  {
+    selector: 'node.is-person',
+    style: {
+      'font-size': 10.5,
+      'font-weight': 700,
+      shape: 'ellipse',
+      'text-margin-y': 2,
+    },
+  },
+  {
+    selector: 'node.family-seed',
+    style: {
+      'border-color': '#c07818',
+      'border-width': 4,
+      'background-color': '#fff8ef',
+      'z-index': 30,
+    },
+  },
+  {
+    selector: 'node.family-role-parent',
+    style: {
+      'border-color': '#0d7a72',
+      'background-color': '#eef8f6',
+    },
+  },
+  {
+    selector: 'node.family-role-spouse',
+    style: {
+      'border-color': '#b45309',
+      'background-color': '#fff7ed',
+      'border-style': 'dashed',
+    },
+  },
+  {
+    selector: 'node.family-role-child',
+    style: {
+      'border-color': '#6366f1',
+      'background-color': '#eef2ff',
+    },
+  },
+  {
+    selector: 'edge.pedigree-edge',
+    style: {
+      label: 'data(label)',
+      'font-size': 8,
+      'font-weight': 700,
+      'text-rotation': 'autorotate',
+      'text-background-color': '#fffdf8',
+      'text-background-opacity': 0.92,
+      'text-background-padding': '2px',
+      'text-background-shape': 'roundrectangle',
+      color: '#0f766e',
+      'target-arrow-shape': 'none',
+    },
+  },
+  {
+    selector: 'edge.pedigree-vertical',
+    style: {
+      width: 2.4,
+      'curve-style': 'taxi',
+      'taxi-direction': 'vertical',
+      'taxi-turn': 48,
+      'taxi-turn-min-distance': 22,
+      'line-color': 'rgba(13, 122, 114, 0.65)',
+    },
+  },
+  {
+    selector: 'edge.pedigree-lateral',
+    style: {
+      width: 2,
+      'curve-style': 'bezier',
+      'line-style': 'dashed',
+      'line-dash-pattern': [6, 4],
+      'line-color': 'rgba(180, 83, 9, 0.55)',
+      color: '#b45309',
+    },
+  },
+  {
+    selector: 'edge.pedigree-father',
+    style: { color: '#0d9488', 'line-color': 'rgba(13, 148, 136, 0.7)' },
+  },
+  {
+    selector: 'edge.pedigree-mother',
+    style: { color: '#db2777', 'line-color': 'rgba(219, 39, 119, 0.55)' },
   },
   {
     selector: 'node.is-root',
@@ -580,230 +784,7 @@ function placeOrbitRings(cy: Core, data: GraphData) {
   })
 }
 
-function placeFamilyPedigree(cy: Core, data: GraphData) {
-  const people = data.nodes.filter((n) => n.type !== 'relation' && n.type !== 'literal')
-  const hubs = data.nodes.filter((n) => n.type === 'relation')
-  const byGen = new Map<number, GraphNode[]>()
-  for (const n of people) {
-    const g = n.__familyGen ?? 0
-    const list = byGen.get(g) ?? []
-    list.push(n)
-    byGen.set(g, list)
-  }
-
-  const roleRank = (role?: GraphNode['__familyRole']) => {
-    if (role === 'seed') return 0
-    if (role === 'spouse') return 1
-    if (role === 'sibling') return 2
-    if (role === 'parent') return 3
-    if (role === 'child') return 4
-    return 5
-  }
-
-  const parentBias = (n: GraphNode) => {
-    const blob = `${n.label} ${n.classes?.join(' ') ?? ''}`.toLowerCase()
-    if (/\bmother\b|female/.test(blob) || n.__familyRole === 'parent') return 0
-    return 1
-  }
-
-  const BAND = 188
-  const GAP = 128
-  const pos = new Map<string, { x: number; y: number }>()
-
-  cy.batch(() => {
-    for (const [gen, members] of byGen) {
-      members.sort((a, b) => {
-        const ra = roleRank(a.__familyRole)
-        const rb = roleRank(b.__familyRole)
-        if (ra !== rb) return ra - rb
-        if (gen !== 0 && a.__familyRole === 'parent' && b.__familyRole === 'parent') {
-          const pb = parentBias(a) - parentBias(b)
-          if (pb !== 0) return pb
-        }
-        return a.label.localeCompare(b.label)
-      })
-
-      if (gen === 0) {
-        const seed = members.find((m) => m.__familyRole === 'seed') ?? members[0]
-        const spouses = members.filter((m) => m.__familyRole === 'spouse')
-        const siblings = members.filter(
-          (m) => m.id !== seed?.id && m.__familyRole === 'sibling',
-        )
-        const rest = members.filter(
-          (m) =>
-            m.id !== seed?.id &&
-            m.__familyRole !== 'spouse' &&
-            m.__familyRole !== 'sibling',
-        )
-        const ordered: GraphNode[] = [
-          ...siblings.slice(0, Math.ceil(siblings.length / 2)),
-          ...(seed ? [seed] : []),
-          ...spouses,
-          ...rest,
-          ...siblings.slice(Math.ceil(siblings.length / 2)),
-        ]
-        const totalW = Math.max(0, ordered.length - 1) * GAP
-        ordered.forEach((m, i) => {
-          const x = -totalW / 2 + i * GAP
-          const y = gen * BAND
-          pos.set(m.id, { x, y })
-          const el = cy.getElementById(m.id)
-          if (!el.empty()) el.position({ x, y })
-        })
-        continue
-      }
-
-      const totalW = Math.max(0, members.length - 1) * GAP
-      members.forEach((m, i) => {
-        const x = -totalW / 2 + i * GAP
-        const y = gen * BAND
-        pos.set(m.id, { x, y })
-        const el = cy.getElementById(m.id)
-        if (!el.empty()) el.position({ x, y })
-      })
-    }
-
-    // Kinship hubs sit mid-band between subject and their values
-    const hubKids = new Map<string, string[]>()
-    const hubSubject = new Map<string, string>()
-    for (const l of data.links) {
-      const { source, target } = linkEnds(l)
-      if (source.startsWith('relhub:')) {
-        const kids = hubKids.get(source) ?? []
-        if (!kids.includes(target)) kids.push(target)
-        hubKids.set(source, kids)
-      } else if (target.startsWith('relhub:')) {
-        hubSubject.set(target, source)
-      }
-    }
-
-    for (const hub of hubs) {
-      const subjectId = hubSubject.get(hub.id) || hub.__parentId
-      const kids = hubKids.get(hub.id) ?? []
-      const subj = subjectId ? pos.get(subjectId) : undefined
-      const kidPts = kids.map((id) => pos.get(id)).filter(Boolean) as {
-        x: number
-        y: number
-      }[]
-      let x = 0
-      let y = 0
-      if (subj && kidPts.length) {
-        const avgX = kidPts.reduce((a, p) => a + p.x, 0) / kidPts.length
-        const avgY = kidPts.reduce((a, p) => a + p.y, 0) / kidPts.length
-        x = (subj.x + avgX) / 2
-        y = (subj.y + avgY) / 2
-        // Slight fan so multiple hubs from one person don't stack
-        const wobble =
-          ((hub.label?.charCodeAt(0) || 0) % 5) * 10 - 20
-        x += wobble
-      } else if (subj) {
-        x = subj.x
-        y = subj.y + BAND * 0.42
-      } else if (kidPts.length) {
-        x = kidPts.reduce((a, p) => a + p.x, 0) / kidPts.length
-        y = kidPts.reduce((a, p) => a + p.y, 0) / kidPts.length - BAND * 0.42
-      }
-      const el = cy.getElementById(hub.id)
-      if (!el.empty()) el.position({ x, y })
-    }
-  })
-}
-
-type KinMaps = {
-  people: GraphNode[]
-  hubs: GraphNode[]
-  byId: Map<string, GraphNode>
-  childrenOf: Map<string, string[]>
-  parentsOf: Map<string, string[]>
-  spousesOf: Map<string, string[]>
-  hubSubject: Map<string, string>
-  hubKids: Map<string, string[]>
-}
-
-function buildKinMaps(data: GraphData): KinMaps {
-  const people = data.nodes.filter((n) => n.type !== 'relation' && n.type !== 'literal')
-  const hubs = data.nodes.filter((n) => n.type === 'relation')
-  const byId = new Map(people.map((n) => [n.id, n]))
-  const childrenOf = new Map<string, string[]>()
-  const parentsOf = new Map<string, string[]>()
-  const spousesOf = new Map<string, string[]>()
-  const hubSubject = new Map<string, string>()
-  const hubKids = new Map<string, string[]>()
-
-  const push = (map: Map<string, string[]>, key: string, val: string) => {
-    const list = map.get(key) ?? []
-    if (!list.includes(val)) list.push(val)
-    map.set(key, list)
-  }
-
-  for (const l of data.links) {
-    const { source, target } = linkEnds(l)
-    if (source.startsWith('relhub:') && byId.has(target)) {
-      push(hubKids, source, target)
-    } else if (byId.has(source) && target.startsWith('relhub:')) {
-      hubSubject.set(target, source)
-    }
-  }
-
-  for (const [hubId, subject] of hubSubject) {
-    const kids = hubKids.get(hubId) ?? []
-    const pred = (hubId.split(':')[2] || '').toLowerCase()
-    const isChild = pred.includes('p40')
-    const isSpouse = pred.includes('p26') || pred.includes('spouse')
-    const isParent =
-      pred.includes('p22') ||
-      pred.includes('p25') ||
-      pred === 'parents' ||
-      hubId.includes(':parents:')
-    for (const t of kids) {
-      if (!byId.has(t)) continue
-      if (isChild) {
-        push(childrenOf, subject, t)
-        push(parentsOf, t, subject)
-      } else if (isParent) {
-        push(parentsOf, subject, t)
-        push(childrenOf, t, subject)
-      } else if (isSpouse) {
-        push(spousesOf, subject, t)
-        push(spousesOf, t, subject)
-      }
-    }
-  }
-
-  // Legacy direct person↔person edges (if any remain)
-  for (const l of data.links) {
-    const { source, target } = linkEnds(l)
-    if (!byId.has(source) || !byId.has(target)) continue
-    const pred = (l.predicate || '').toLowerCase()
-    const label = (l.predicateLabel || '').toLowerCase()
-    const isChild = /\/p40$|child/.test(pred) || label.includes('child')
-    const isSpouse = /\/p26$|spouse|partner|married/.test(pred) || /spouse|partner/.test(label)
-    const isParent =
-      /\/p22$|\/p25$|father|mother|parents/.test(pred) ||
-      /father|mother|parents/.test(label)
-    if (isChild) {
-      push(childrenOf, source, target)
-      push(parentsOf, target, source)
-    } else if (isParent) {
-      push(parentsOf, source, target)
-      push(childrenOf, target, source)
-    } else if (isSpouse) {
-      push(spousesOf, source, target)
-      push(spousesOf, target, source)
-    }
-  }
-
-  return {
-    people,
-    hubs,
-    byId,
-    childrenOf,
-    parentsOf,
-    spousesOf,
-    hubSubject,
-    hubKids,
-  }
-}
+type KinMaps = ReturnType<typeof buildKinMaps>
 
 function placeHubsFromMaps(
   cy: Core,
@@ -836,76 +817,6 @@ function placeHubsFromMaps(
     const el = cy.getElementById(hub.id)
     if (!el.empty()) el.position({ x, y })
   }
-}
-
-/**
- * Cascade family arrange: generations as rows; children under parent midpoints.
- * Resolves person→hub→person kinship links.
- */
-function placeFamilyCascade(cy: Core, data: GraphData) {
-  const maps = buildKinMaps(data)
-  const { people, parentsOf } = maps
-  const byGen = new Map<number, GraphNode[]>()
-  for (const n of people) {
-    const g = n.__familyGen ?? 0
-    const list = byGen.get(g) ?? []
-    list.push(n)
-    byGen.set(g, list)
-  }
-
-  const gens = [...byGen.keys()].sort((a, b) => a - b)
-  const BAND = 190
-  const GAP = 118
-  const xOf = new Map<string, number>()
-  const yOf = new Map<string, number>()
-
-  for (const gen of gens) {
-    const members = (byGen.get(gen) ?? []).slice().sort((a, b) => {
-      if (a.__familyRole === 'seed') return -1
-      if (b.__familyRole === 'seed') return 1
-      return a.label.localeCompare(b.label)
-    })
-
-    const desired = members.map((m, i) => {
-      const ps = (parentsOf.get(m.id) ?? [])
-        .map((p) => xOf.get(p))
-        .filter((x): x is number => x != null)
-      if (ps.length) return ps.reduce((a, b) => a + b, 0) / ps.length
-      return i * GAP
-    })
-
-    const order = members
-      .map((m, i) => ({ m, d: desired[i]! }))
-      .sort((a, b) => a.d - b.d)
-
-    let cursor = 0
-    order.forEach((item, idx) => {
-      const target = idx === 0 ? item.d : Math.max(item.d, cursor + GAP)
-      xOf.set(item.m.id, target)
-      cursor = target
-    })
-
-    const xs = order.map((o) => xOf.get(o.m.id)!)
-    if (xs.length) {
-      const mid = (Math.min(...xs) + Math.max(...xs)) / 2
-      for (const o of order) {
-        xOf.set(o.m.id, xOf.get(o.m.id)! - mid)
-      }
-    }
-  }
-
-  cy.batch(() => {
-    for (const n of people) {
-      const el = cy.getElementById(n.id)
-      if (el.empty()) continue
-      const gen = n.__familyGen ?? 0
-      const x = xOf.get(n.id) ?? 0
-      const y = gen * BAND
-      yOf.set(n.id, y)
-      el.position({ x, y })
-    }
-    placeHubsFromMaps(cy, maps, xOf, yOf, BAND)
-  })
 }
 
 /**
@@ -1101,22 +1012,22 @@ function runLayout(
   const hasHubs = graphHasOntologyHubs(data)
 
   if (mode === 'family') {
-    placeFamilyPedigree(cy, data)
-    cy.edges('.kin-edge').removeClass('tree-trunk')
+    placeFamilyTree(cy, data)
+    cy.edges('.pedigree-vertical').addClass('tree-trunk')
     fitAfter(cy)
     return
   }
 
   if (mode === 'family-cascade') {
-    placeFamilyCascade(cy, data)
-    cy.edges('.kin-edge').removeClass('tree-trunk')
+    placeFamilyTree(cy, data)
+    cy.edges('.pedigree-vertical').addClass('tree-trunk')
     fitAfter(cy)
     return
   }
 
   if (mode === 'family-tree') {
     placeFamilyTree(cy, data)
-    cy.edges('.kin-edge').addClass('tree-trunk')
+    cy.edges('.pedigree-vertical').addClass('tree-trunk')
     fitAfter(cy)
     return
   }
@@ -1426,7 +1337,11 @@ export const KnowledgeGraph = forwardRef<KnowledgeGraphHandle, Props>(
       if (structureChanged) {
         cy.batch(() => {
           cy.elements().remove()
-          cy.add(buildElements(data))
+          cy.add(
+            isFamilyLayout(layoutModeRef.current)
+              ? buildFamilyPedigreeElements(data)
+              : buildElements(data),
+          )
         })
         runLayout(cy, data, selectedNodeId, layoutModeRef.current)
       }
@@ -1436,6 +1351,14 @@ export const KnowledgeGraph = forwardRef<KnowledgeGraphHandle, Props>(
     useEffect(() => {
       const cy = cyRef.current
       if (!cy || dataRef.current.nodes.length === 0) return
+      cy.batch(() => {
+        cy.elements().remove()
+        cy.add(
+          isFamilyLayout(layoutMode)
+            ? buildFamilyPedigreeElements(dataRef.current)
+            : buildElements(dataRef.current),
+        )
+      })
       runLayout(cy, dataRef.current, selectedRef.current, layoutMode)
     }, [layoutMode, layoutKey])
 
@@ -1475,6 +1398,14 @@ export const KnowledgeGraph = forwardRef<KnowledgeGraphHandle, Props>(
             <span className="fts-canopy" />
             <span className="fts-trunk" />
             <span className="fts-root" />
+          </div>
+        )}
+        {isFamilyLayout(layoutMode) && (
+          <div className="family-pedigree-legend" aria-label="Family relations">
+            <span className="fpl-item vertical">Parent → Child</span>
+            <span className="fpl-item father">Father</span>
+            <span className="fpl-item mother">Mother</span>
+            <span className="fpl-item lateral">Spouse / Sibling</span>
           </div>
         )}
         {layoutMode === 'family-tree' && (

@@ -6,7 +6,7 @@ import { PersonDashboard } from '../dossier/PersonDashboard'
 import { OrgDashboard } from '../dossier/OrgDashboard'
 import { WorkDashboard } from '../dossier/WorkDashboard'
 import { CorpusReadingPane } from './CorpusReadingPane'
-import { ReaderChapterDeck } from './ReaderChapterDeck'
+import { CorpusYearTimeline } from '../overview/CorpusYearTimeline'
 
 export function ReaderHomeContent({
   kind,
@@ -36,6 +36,8 @@ export function ReaderHomeContent({
         onDossierPatch={onDossierPatch}
       />
 
+      <CorpusYearTimeline dossier={dossier} />
+
       <OverviewSummaryHub
         dossier={dossier}
         onSection={onSection}
@@ -48,12 +50,6 @@ export function ReaderHomeContent({
       )}
       {kind === 'org' && <OrgDashboard dossier={dossier} onOpenGraph={onOpenGraph} mainOnly />}
       {kind === 'work' && <WorkDashboard dossier={dossier} onOpenGraph={onOpenGraph} mainOnly />}
-
-      <ReaderChapterDeck
-        dossier={dossier}
-        activeId={activeWikiChapter}
-        onActiveChange={onWikiChapterChange}
-      />
     </div>
   )
 }

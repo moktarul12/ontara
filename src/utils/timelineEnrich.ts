@@ -93,7 +93,7 @@ function addDatedFacts(
   seen: Set<string>,
   facts: VerifiedFact[],
   kind: EntityKind,
-  label: string,
+  _label: string,
 ) {
   const dateLabels =
     kind === 'person'

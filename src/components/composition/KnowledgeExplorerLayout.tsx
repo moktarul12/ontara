@@ -3,7 +3,6 @@ import type { EntityKind } from '../../types/entityArticle'
 import type { EntityDossier } from '../../types/entityDossier'
 import type { EntityTab } from '../EntityHeader'
 import type { OverviewSectionId } from '../../services/overviewSections'
-import { ExplorerIconRail } from './ExplorerIconRail'
 import { CorpusTopicTabs } from './CorpusTopicTabs'
 import { OverviewRightRail } from '../overview/OverviewRightRail'
 import { OverviewBreadcrumb } from '../overview/OverviewBreadcrumb'
@@ -42,14 +41,6 @@ export function KnowledgeExplorerLayout({
 
   return (
     <div className="ke-wiki-layout ke-v3-layout">
-      <ExplorerIconRail
-        kind={kind}
-        dossier={dossier}
-        isHome={showHero}
-        activeSection={activeSection}
-        onSection={onSection}
-      />
-
       <div className="ke-wiki-main">
         <OverviewBreadcrumb
           displayLabel={displayLabel}
@@ -80,11 +71,7 @@ export function KnowledgeExplorerLayout({
           <div className={`ke-wiki-content ${activeSection === 'summary' ? 'is-overview' : 'is-detail'}`}>
             {children}
           </div>
-          <OverviewRightRail
-            dossier={dossier}
-            onSection={onSection}
-            onOpenGraph={onOpenGraph}
-          />
+          <OverviewRightRail dossier={dossier} onOpenGraph={onOpenGraph} />
         </div>
       </div>
     </div>

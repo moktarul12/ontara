@@ -16,7 +16,6 @@ type TopicTab = {
 
 function buildTabs(kind: EntityKind, dossier: EntityDossier): TopicTab[] {
   const timelineCount = corpusTimelineCount(dossier)
-  const timelineSection: OverviewSectionId = kind === 'org' ? 'history' : 'timeline'
   const dataStats = buildCorpusDataStats(dossier)
   const works = dataStats.worksCount || overviewSectionCount(dossier, 'works')
   const awards = dataStats.awardsWon + dataStats.nominations || overviewSectionCount(dossier, 'honours')
@@ -30,7 +29,7 @@ function buildTabs(kind: EntityKind, dossier: EntityDossier): TopicTab[] {
       id: 'timeline',
       label: 'Timeline',
       icon: '⏱',
-      sectionId: timelineSection,
+      scrollId: 'corpus-year-timeline',
       count: timelineCount,
     })
   }
@@ -81,18 +80,14 @@ export function CorpusTopicTabs({
   const onSummary = activeSection === 'summary'
 
   const handleClick = (tab: TopicTab) => {
-    if (tab.id === 'overview') {
+    if (tab.scrollId) {
       if (!onSummary) onSection('summary')
       requestAnimationFrame(() => {
-        document.getElementById(tab.scrollId ?? 'corpus-reading')?.scrollIntoView({
+        document.getElementById(tab.scrollId!)?.scrollIntoView({
           behavior: 'smooth',
           block: 'start',
         })
       })
-      return
-    }
-    if (onSummary && tab.scrollId) {
-      document.getElementById(tab.scrollId)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       return
     }
     if (tab.sectionId) onSection(tab.sectionId)

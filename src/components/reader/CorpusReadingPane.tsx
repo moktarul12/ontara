@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EntityDossier } from '../../types/entityDossier'
 import type { OverviewSectionId } from '../../services/overviewSections'
 import { wikiOverviewSections } from '../../services/overviewSections'
+import { wikiSectionNavDefs } from '../../services/wikiSectionNav'
 import {
   adjacentWikiSections,
   findWikiSectionByNavId,
@@ -37,18 +38,25 @@ export function CorpusReadingPane({
   onDossierPatch?: (patch: (d: EntityDossier) => EntityDossier) => void
 }) {
   const chapters = wikiOverviewSections(dossier.kind, dossier)
+  const navDefs = wikiSectionNavDefs(dossier)
   const fallbackLead = resolveArticleLead(dossier)
   const fallbackParagraphs = resolveArticleLeadParagraphs(dossier)
-  const hasContent = chapters.length > 0 || Boolean(fallbackLead) || hasWikiChapterNav(dossier)
+  const hasContent =
+    navDefs.length > 0 ||
+    chapters.length > 0 ||
+    Boolean(fallbackLead) ||
+    hasWikiChapterNav(dossier)
 
   const navItems = useMemo(
     () =>
-      chapters.length
-        ? chapters.map((ch) => ({ id: ch.id, label: navLabel(ch.id, ch.navLabel) }))
-        : fallbackLead
-          ? [{ id: 'w/introduction' as OverviewSectionId, label: 'Overview' }]
-          : [],
-    [chapters, fallbackLead],
+      navDefs.length
+        ? navDefs.map((ch) => ({ id: ch.id, label: navLabel(ch.id, ch.navLabel) }))
+        : chapters.length
+          ? chapters.map((ch) => ({ id: ch.id, label: navLabel(ch.id, ch.navLabel) }))
+          : fallbackLead
+            ? [{ id: 'w/introduction' as OverviewSectionId, label: 'Overview' }]
+            : [],
+    [navDefs, chapters, fallbackLead],
   )
 
   const [internalActiveId, setInternalActiveId] = useState<OverviewSectionId | null>(null)

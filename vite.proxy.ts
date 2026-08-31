@@ -1,5 +1,6 @@
 import type { Plugin } from 'vite'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+// @ts-expect-error JS module — typed via loadEnv.mjs.d.ts (NodeNext)
 import { loadEnv } from './loadEnv.mjs'
 
 loadEnv()

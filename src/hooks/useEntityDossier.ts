@@ -88,8 +88,9 @@ export function useEntityDossier(
       setErr(null)
       try {
         const shell = await fetchEntityCardShell(uri, lang)
+        const built = buildEntityDossier(shell.article, shell.profile, true)
         const initial = withShellHeroImage(
-          await dossierFromShell(shell, true),
+          built,
           shell.profile.imageUrl ?? shell.wiki?.leadImage,
         )
         if (!cancelled) {
@@ -97,6 +98,16 @@ export function useEntityDossier(
           setLoading(false)
           setEnriching(true)
         }
+
+        void enrichDossierWithImages(built, shell.profile, shell.wiki?.leadImage).then(
+          (withImages) => {
+            if (!cancelled) {
+              setDossier((d) =>
+                d ? withShellHeroImage(withImages, shell.profile.imageUrl ?? shell.wiki?.leadImage) : d,
+              )
+            }
+          },
+        )
 
         const runAi = async (base: EntityDossier) => {
           const final = await applyAiLayers(base)
@@ -107,16 +118,14 @@ export function useEntityDossier(
         }
 
         if (fastOverview) {
-          const fullDossier = await enrichShellToDossier(shell, lang, backgroundPlan)
-          if (cancelled) return
-          setDossier(fullDossier)
-          if (backgroundPlan.deferAi) {
-            void runAi(fullDossier).catch(() => {
-              if (!cancelled) setEnriching(false)
+          if (!cancelled) setEnriching(false)
+          void enrichShellToDossier(shell, lang, backgroundPlan)
+            .then((fullDossier) => {
+              if (cancelled) return
+              setDossier(fullDossier)
+              void runAi(fullDossier).catch(() => {})
             })
-          } else {
-            await runAi(fullDossier)
-          }
+            .catch(() => {})
           return
         }
 

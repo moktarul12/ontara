@@ -12,15 +12,15 @@ const ICON: Record<CorpusTimelineEventKind, string> = {
   milestone: '✦',
 }
 
-const INITIAL_YEARS = 10
-const LOAD_MORE = 10
+const INITIAL_YEARS = 12
+const LOAD_MORE = 8
 
 export function CorpusYearTimeline({ dossier }: { dossier: EntityDossier }) {
   const data = useMemo(() => buildCorpusTimeline(dossier), [dossier])
   const [visibleCount, setVisibleCount] = useState(INITIAL_YEARS)
 
   if (!data.years.length) {
-    return <p className="corpus-empty muted">No dated timeline events found yet.</p>
+    return null
   }
 
   const visible = data.years.slice(0, visibleCount)
@@ -31,13 +31,14 @@ export function CorpusYearTimeline({ dossier }: { dossier: EntityDossier }) {
       : undefined
 
   return (
-    <section className="corpus-year-timeline">
+    <section className="corpus-year-timeline" id="corpus-year-timeline">
       <header className="corpus-year-timeline-head">
         <div>
-          <h2>Year by year</h2>
+          <h2>Timeline</h2>
           <p>
-            {data.totalDated} dated event{data.totalDated === 1 ? '' : 's'}
-            {range ? ` across ${range}` : ''}
+            {data.totalDated} event{data.totalDated === 1 ? '' : 's'}
+            {range ? ` · ${range}` : ''}
+            {' · '}year by year, month by month
           </p>
         </div>
       </header>
@@ -51,19 +52,31 @@ export function CorpusYearTimeline({ dossier }: { dossier: EntityDossier }) {
                 {group.events.length} event{group.events.length === 1 ? '' : 's'}
               </span>
             </header>
-            <ul className="corpus-year-events">
-              {group.events.map((e, i) => (
-                <li key={`${group.year}-${e.title}-${i}`} className={`corpus-year-event is-${e.kind}`}>
-                  <span className={`corpus-year-event-icon ${e.kind}`} aria-hidden>
-                    {ICON[e.kind]}
-                  </span>
-                  <div className="corpus-year-event-body">
-                    <strong>{e.title}</strong>
-                    <span>{e.subtitle}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
+
+            {group.months.map((monthGroup) => (
+              <div
+                key={`${group.year}-${monthGroup.month ?? 'general'}`}
+                className="corpus-month-group"
+              >
+                <h4 className="corpus-month-label">{monthGroup.monthLabel}</h4>
+                <ul className="corpus-year-events">
+                  {monthGroup.events.map((e, i) => (
+                    <li
+                      key={`${group.year}-${monthGroup.monthLabel}-${e.title}-${i}`}
+                      className={`corpus-year-event is-${e.kind}`}
+                    >
+                      <span className={`corpus-year-event-icon ${e.kind}`} aria-hidden>
+                        {ICON[e.kind]}
+                      </span>
+                      <div className="corpus-year-event-body">
+                        <strong>{e.title}</strong>
+                        <span>{e.subtitle}</span>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </article>
         ))}
       </div>

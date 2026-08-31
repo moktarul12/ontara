@@ -52,7 +52,9 @@ export function OrgDashboard({
             </section>
           )}
 
-          {(data.financialPoints.length > 0 || dossier.summary.verifiedFacts.some((f) => /revenue|employees|net/i.test(f.label))) && (
+          {!mainOnly &&
+            (data.financialPoints.length > 0 ||
+              dossier.summary.verifiedFacts.some((f) => /revenue|employees|net/i.test(f.label))) && (
             <section className="org-card org-financial-card" id="cat-financials">
               <header className="org-section-head">
                 <h2>Financial Overview</h2>
@@ -99,7 +101,7 @@ export function OrgDashboard({
             </section>
           )}
 
-          {data.keyPeople.length > 0 && (
+          {data.keyPeople.length > 0 && !mainOnly && (
             <section className="org-card" id="cat-leadership">
               <header className="org-section-head">
                 <h2>Leadership</h2>
@@ -122,7 +124,7 @@ export function OrgDashboard({
           )}
 
           <div className="org-bottom-grid">
-            {data.products.length > 0 && (
+            {data.products.length > 0 && !mainOnly && (
               <section className="org-card org-products-card" id="cat-products">
                 <header className="org-section-head">
                   <h2>Business Segments</h2>
@@ -139,7 +141,7 @@ export function OrgDashboard({
               </section>
             )}
 
-            {dossier.summary.topAwards.length > 0 && (
+            {dossier.summary.topAwards.length > 0 && !mainOnly && (
               <section className="org-card org-awards-card" id="cat-honours">
                 <header className="org-section-head">
                   <h2>Honours</h2>

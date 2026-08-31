@@ -61,7 +61,7 @@ const CLAIM_PROPS: { id: string; label: string; group: ProfileFactGroup }[] = [
   { id: 'P112', label: 'founded by', group: 'life' },
 ]
 
-type WbEntity = {
+export type WbEntity = {
   labels?: Record<string, { value: string }>
   descriptions?: Record<string, { value: string }>
   claims?: Record<string, WbClaim[]>
@@ -189,16 +189,20 @@ function wikipediaTitleFromEntity(entity: WbEntity | undefined, lang: string): s
 export async function fetchWikidataClaimFacts(
   entityUri: string,
   lang: string,
+  preloadedEntity?: WbEntity,
 ): Promise<WikidataClaimBundle> {
   const qid = qidFromUri(entityUri)
   if (!qid) return { facts: [] }
 
-  const url = `${WIKIDATA_API}?action=wbgetentities&ids=${qid}&props=claims|labels|descriptions|sitelinks&languages=${lang}|en&format=json`
-  const res = await fetch(url)
-  if (!res.ok) return { facts: [] }
+  let entity = preloadedEntity
+  if (!entity) {
+    const url = `${WIKIDATA_API}?action=wbgetentities&ids=${qid}&props=claims|labels|descriptions|sitelinks&languages=${lang}|en&format=json`
+    const res = await fetch(url)
+    if (!res.ok) return { facts: [] }
+    const data = (await res.json()) as { entities?: Record<string, WbEntity> }
+    entity = data.entities?.[qid]
+  }
 
-  const data = (await res.json()) as { entities?: Record<string, WbEntity> }
-  const entity = data.entities?.[qid]
   const imageUrl = await imageUrlFromEntityClaims(entity, 480)
   if (!entity?.claims) {
     const wikiTitle = wikipediaTitleFromEntity(entity, lang)

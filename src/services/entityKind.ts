@@ -39,7 +39,7 @@ export type CuratedEntityKind = 'person' | 'org' | 'work' | 'other'
 
 /** Classify from Wikidata P31 (instance of) Q-ids. */
 export function classifyKindFromP31(ids: string[]): CuratedEntityKind {
-  if (ids.includes('Q5')) return 'person'
+  if (ids.some((id) => PERSON_P31.has(id))) return 'person'
   if (ids.some((id) => ORG_P31.has(id))) return 'org'
   if (ids.some((id) => WORK_P31.has(id))) return 'work'
   return 'other'
