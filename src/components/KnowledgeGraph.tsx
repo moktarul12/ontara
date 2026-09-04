@@ -570,7 +570,95 @@ const CY_STYLE = [
   },
 ] as cytoscape.StylesheetStyle[]
 
-/** Ontopedian constellation: hubs as petals, values fanned along each spoke. */
+type AtlasHalf = { hw: number; hh: number }
+
+function atlasHalfSize(cy: Core, id: string): AtlasHalf {
+  const el = cy.getElementById(id)
+  if (el.empty()) return { hw: 52, hh: 24 }
+  return {
+    hw: Number(el.data('boxW') ?? 100) / 2 + 10,
+    hh: Number(el.data('boxH') ?? 44) / 2 + 10,
+  }
+}
+
+/** Angular width a card needs at radius r so neighbors don't collide. */
+function atlasArcNeed(r: number, halfA: number, halfB: number, pad: number): number {
+  const chord = halfA + halfB + pad
+  if (r <= chord * 0.35) return Math.PI / 3
+  return 2 * Math.atan(chord / (2 * Math.max(r, 40)))
+}
+
+/**
+ * Soft AABB separation — pushes overlapping cards/hubs apart until clear.
+ * Root stays pinned at origin.
+ */
+function resolveAtlasCollisions(
+  cy: Core,
+  ids: string[],
+  rootId: string | undefined,
+  passes = 48,
+  pad = 16,
+) {
+  const movable = ids.filter((id) => id !== rootId)
+  for (let pass = 0; pass < passes; pass++) {
+    let moved = 0
+    for (let i = 0; i < movable.length; i++) {
+      const a = movable[i]!
+      const ae = cy.getElementById(a)
+      if (ae.empty()) continue
+      const ap = ae.position()
+      const as = atlasHalfSize(cy, a)
+      for (let j = i + 1; j < movable.length; j++) {
+        const b = movable[j]!
+        const be = cy.getElementById(b)
+        if (be.empty()) continue
+        const bp = be.position()
+        const bs = atlasHalfSize(cy, b)
+        const ox = as.hw + bs.hw + pad - Math.abs(ap.x - bp.x)
+        const oy = as.hh + bs.hh + pad - Math.abs(ap.y - bp.y)
+        if (ox <= 0 || oy <= 0) continue
+        // Separate along the shorter overlap axis (stable for cards)
+        let dx = bp.x - ap.x
+        let dy = bp.y - ap.y
+        if (dx === 0 && dy === 0) {
+          const jitter = (i + 1) * 0.37
+          dx = Math.cos(jitter)
+          dy = Math.sin(jitter)
+        }
+        if (ox < oy) {
+          const push = (ox / 2) * (dx >= 0 ? 1 : -1)
+          ae.position({ x: ap.x - push, y: ap.y })
+          be.position({ x: bp.x + push, y: bp.y })
+          ap.x -= push
+          bp.x += push
+        } else {
+          const push = (oy / 2) * (dy >= 0 ? 1 : -1)
+          ae.position({ x: ap.x, y: ap.y - push })
+          be.position({ x: bp.x, y: bp.y + push })
+          ap.y -= push
+          bp.y += push
+        }
+        moved++
+      }
+      // Keep clear of the root disc
+      if (rootId) {
+        const rootHalf = atlasHalfSize(cy, rootId)
+        const clear = Math.max(rootHalf.hw, rootHalf.hh) + Math.max(as.hw, as.hh) + pad + 12
+        const d = Math.hypot(ap.x, ap.y) || 1
+        if (d < clear) {
+          ae.position({ x: (ap.x / d) * clear, y: (ap.y / d) * clear })
+          moved++
+        }
+      }
+    }
+    if (!moved) break
+  }
+}
+
+/**
+ * Ontopedian constellation: pie-slice hubs weighted by fan size,
+ * multi-arc packing for busy predicates, then collision cleanup.
+ */
 function placeHopOrbits(cy: Core, data: GraphData) {
   const root =
     data.nodes.find((n) => (n.__hopDepth ?? 0) === 0)?.id ?? data.nodes[0]?.id
@@ -581,23 +669,11 @@ function placeHopOrbits(cy: Core, data: GraphData) {
     if (rootNode.nonempty()) rootNode.position({ x: 0, y: 0 })
 
     for (let hop = 1; hop <= 5; hop++) {
-      const valueR = HOP_RADIUS[hop] ?? 200 + hop * 140
+      const valueR = HOP_RADIUS[hop] ?? 200 + hop * 160
       const hubR = valueR * HUB_RADIUS_FACTOR
       const atHop = data.nodes.filter((n) => (n.__hopDepth ?? 0) === hop)
       const hubs = atHop.filter((n) => n.type === 'relation')
       const values = atHop.filter((n) => n.type !== 'relation')
-
-      hubs.forEach((h, i) => {
-        const n = Math.max(hubs.length, 1)
-        const angle = (i / n) * Math.PI * 2 - Math.PI / 2 + (hop % 2 === 0 ? 0.22 : 0)
-        const wobble = 1 + 0.06 * Math.sin(i * 1.7 + hop)
-        const el = cy.getElementById(h.id)
-        if (el.empty()) return
-        el.position({
-          x: Math.cos(angle) * hubR * wobble,
-          y: Math.sin(angle) * hubR * wobble,
-        })
-      })
 
       const byHub = new Map<string, typeof values>()
       for (const v of values) {
@@ -607,23 +683,211 @@ function placeHopOrbits(cy: Core, data: GraphData) {
         byHub.set(key, list)
       }
 
-      for (const [hubId, kids] of byHub) {
-        const hubEl = cy.getElementById(hubId)
-        const hubPos = hubEl.nonempty() ? hubEl.position() : { x: 0, y: -hubR }
-        const baseAngle = Math.atan2(hubPos.y, hubPos.x)
-        const dist = Math.max(92, valueR - hubR)
-        kids.forEach((v, i) => {
-          const spread = (i - (kids.length - 1) / 2) * 0.32
-          const r = dist * (0.92 + (i % 3) * 0.08)
-          const el = cy.getElementById(v.id)
-          if (el.empty()) return
-          el.position({
-            x: hubPos.x + Math.cos(baseAngle + spread) * r,
-            y: hubPos.y + Math.sin(baseAngle + spread) * r,
+      // Stable order; weight by how many leaves need room in the slice
+      const orderedHubs = [...hubs].sort((a, b) => a.label.localeCompare(b.label))
+      const loose = byHub.get('_loose') ?? []
+      const weights = orderedHubs.map((h) => {
+        const kids = byHub.get(h.id) ?? []
+        // Busy predicates (subsidiary) earn a wider pie; tiny ones keep a floor
+        return Math.max(1.2, Math.sqrt(kids.length + 0.5) + kids.length * 0.4)
+      })
+      const looseW = loose.length ? Math.max(1.2, Math.sqrt(loose.length) + loose.length * 0.35) : 0
+      const totalW = weights.reduce((a, b) => a + b, 0) + looseW || 1
+
+      const hubHalf = 42
+      const minHubSlice = atlasArcNeed(hubR, hubHalf, hubHalf, 32)
+      const raw = [
+        ...weights.map((w) => (w / totalW) * Math.PI * 2),
+        ...(looseW ? [(looseW / totalW) * Math.PI * 2] : []),
+      ]
+      const gated = raw.map((s) => Math.max(s, minHubSlice))
+      const gatedSum = gated.reduce((a, b) => a + b, 0) || 1
+      const scale = gatedSum > Math.PI * 2 ? (Math.PI * 2) / gatedSum : 1
+      const finalSlices = gated.map((s) => s * scale)
+      const hubSlices = finalSlices.slice(0, orderedHubs.length)
+      const looseSlice = looseW ? finalSlices[finalSlices.length - 1]! : 0
+
+      let cursor = -Math.PI / 2 + (hop % 2 === 0 ? 0.12 : 0)
+
+      const placeFan = (
+        kids: GraphNode[],
+        midAngle: number,
+        slice: number,
+        fromR: number,
+      ) => {
+        if (!kids.length) return
+        const sorted = [...kids].sort((a, b) => a.label.localeCompare(b.label))
+        const pad = 24
+        const halves = sorted.map((k) => atlasHalfSize(cy, k.id))
+        const budget = Math.max(0.12, slice * 0.9)
+
+        // Prefer more arcs over crushing cards into one cramped ring
+        let arcs = 1
+        let baseR = fromR
+        for (let tryArcs = 1; tryArcs <= 4; tryArcs++) {
+          arcs = tryArcs
+          baseR = fromR
+          const perArc = Math.ceil(sorted.length / tryArcs)
+          let ok = true
+          for (let a = 0; a < tryArcs; a++) {
+            const start = a * perArc
+            const count = Math.min(perArc, sorted.length - start)
+            if (count <= 1) continue
+            let r = fromR + a * 88
+            let need = 0
+            for (let i = 1; i < count; i++) {
+              need += atlasArcNeed(
+                r,
+                halves[start + i - 1]!.hw,
+                halves[start + i]!.hw,
+                pad,
+              )
+            }
+            if (need > budget) {
+              // Push this arc out until chords fit the pie slice
+              const boost = need / budget
+              r = Math.max(r, fromR * Math.min(1.65, 0.85 + boost * 0.45))
+              need = 0
+              for (let i = 1; i < count; i++) {
+                need += atlasArcNeed(
+                  r,
+                  halves[start + i - 1]!.hw,
+                  halves[start + i]!.hw,
+                  pad,
+                )
+              }
+              if (need > budget) {
+                ok = false
+                break
+              }
+              baseR = Math.max(baseR, r - a * 88)
+            }
+          }
+          if (ok) break
+        }
+
+        const perArc = Math.ceil(sorted.length / arcs)
+        for (let a = 0; a < arcs; a++) {
+          const group = sorted.slice(a * perArc, a * perArc + perArc)
+          if (!group.length) continue
+          let r = baseR + a * 90
+          const gHalves = group.map((k) => atlasHalfSize(cy, k.id))
+          const gaps: number[] = []
+          for (let i = 1; i < group.length; i++) {
+            gaps.push(atlasArcNeed(r, gHalves[i - 1]!.hw, gHalves[i]!.hw, pad))
+          }
+          let span = gaps.reduce((s, g) => s + g, 0)
+          if (span > budget && span > 0) {
+            r *= Math.min(1.7, span / budget)
+            for (let i = 1; i < group.length; i++) {
+              gaps[i - 1] = atlasArcNeed(r, gHalves[i - 1]!.hw, gHalves[i]!.hw, pad)
+            }
+            span = gaps.reduce((s, g) => s + g, 0)
+          }
+          const grow = span > 0 && span < budget ? budget / span : 1
+          const used = Math.min(budget, Math.max(span * grow, group.length <= 1 ? 0 : span))
+          let ang = midAngle - used / 2
+          group.forEach((v, i) => {
+            if (i > 0) ang += gaps[i - 1]! * (span > 0 && span < budget ? grow : 1)
+            const el = cy.getElementById(v.id)
+            if (el.empty()) return
+            const wobble = group.length > 4 ? (i % 2 === 0 ? 0 : 20) : 0
+            el.position({
+              x: Math.cos(ang) * (r + wobble),
+              y: Math.sin(ang) * (r + wobble),
+            })
           })
-        })
+        }
+      }
+
+      orderedHubs.forEach((h, i) => {
+        const slice = hubSlices[i] ?? minHubSlice
+        const mid = cursor + slice / 2
+        const el = cy.getElementById(h.id)
+        if (el.nonempty()) {
+          el.position({ x: Math.cos(mid) * hubR, y: Math.sin(mid) * hubR })
+        }
+        placeFan(byHub.get(h.id) ?? [], mid, slice, valueR)
+        cursor += slice
+      })
+
+      if (loose.length) {
+        const mid = cursor + looseSlice / 2
+        placeFan(loose, mid, looseSlice, valueR)
+      }
+
+      // Snap each hub onto the ray toward its kids' centroid (mid-spoke)
+      for (const h of orderedHubs) {
+        const kids = byHub.get(h.id) ?? []
+        const el = cy.getElementById(h.id)
+        if (el.empty()) continue
+        if (!kids.length) continue
+        let cx = 0
+        let cyPos = 0
+        let n = 0
+        for (const k of kids) {
+          const ke = cy.getElementById(k.id)
+          if (ke.empty()) continue
+          const p = ke.position()
+          cx += p.x
+          cyPos += p.y
+          n++
+        }
+        if (!n) continue
+        cx /= n
+        cyPos /= n
+        const ang = Math.atan2(cyPos, cx)
+        const kidR = Math.hypot(cx, cyPos)
+        const spokeR = Math.min(hubR, Math.max(hubR * 0.85, kidR * 0.42))
+        el.position({ x: Math.cos(ang) * spokeR, y: Math.sin(ang) * spokeR })
       }
     }
+
+    resolveAtlasCollisions(
+      cy,
+      data.nodes.map((n) => n.id),
+      root,
+      56,
+      18,
+    )
+
+    // After separation, re-seat hubs on the parent→kids spoke so edges stay clean
+    for (const h of data.nodes.filter((n) => n.type === 'relation')) {
+      const kids = data.nodes.filter(
+        (n) => n.type !== 'relation' && (n.__parentId === h.id || n.__clusterKey === h.id),
+      )
+      const el = cy.getElementById(h.id)
+      if (el.empty() || !kids.length) continue
+      let cx = 0
+      let cyPos = 0
+      let n = 0
+      for (const k of kids) {
+        const ke = cy.getElementById(k.id)
+        if (ke.empty()) continue
+        const p = ke.position()
+        cx += p.x
+        cyPos += p.y
+        n++
+      }
+      if (!n) continue
+      cx /= n
+      cyPos /= n
+      const ang = Math.atan2(cyPos, cx)
+      const kidR = Math.hypot(cx, cyPos) || 200
+      const hop = h.__hopDepth ?? 1
+      const base = (HOP_RADIUS[hop] ?? 280) * HUB_RADIUS_FACTOR
+      const spokeR = Math.min(Math.max(base, kidR * 0.4), kidR - 70)
+      el.position({ x: Math.cos(ang) * spokeR, y: Math.sin(ang) * spokeR })
+    }
+
+    // Final light pass — hubs vs cards only
+    resolveAtlasCollisions(
+      cy,
+      data.nodes.map((n) => n.id),
+      root,
+      24,
+      14,
+    )
   })
 }
 
@@ -637,22 +901,36 @@ function placeOrbitRings(cy: Core, data: GraphData) {
     buckets.set(h, list)
   }
   const hubs = data.nodes.filter((n) => n.type === 'relation')
+  const root =
+    data.nodes.find((n) => (n.__hopDepth ?? 0) === 0)?.id ?? data.nodes[0]?.id
 
   cy.batch(() => {
     for (const [hop, ids] of buckets) {
-      const r = HOP_RADIUS[hop] ?? 200 + hop * 140
-      ids.forEach((id, i) => {
-        const angle = (i / Math.max(ids.length, 1)) * Math.PI * 2 - Math.PI / 2
+      const r = HOP_RADIUS[hop] ?? 200 + hop * 160
+      const sorted = [...ids].sort()
+      // Size-aware equal spacing on the ring
+      const halves = sorted.map((id) => atlasHalfSize(cy, id))
+      const gaps = sorted.map((_, i) => {
+        if (sorted.length < 2) return 0
+        const a = halves[i]!
+        const b = halves[(i + 1) % sorted.length]!
+        return atlasArcNeed(r, a.hw, b.hw, 20)
+      })
+      const needSum = gaps.reduce((s, g) => s + g, 0)
+      const scale = needSum > 0 ? (Math.PI * 2) / needSum : 1
+      let ang = -Math.PI / 2
+      sorted.forEach((id, i) => {
         const el = cy.getElementById(id)
         if (el.empty()) return
-        el.position({ x: Math.cos(angle) * r, y: Math.sin(angle) * r })
+        el.position({ x: Math.cos(ang) * r, y: Math.sin(ang) * r })
+        ang += gaps[i]! * scale
       })
     }
     for (const h of hubs) {
       const parent = h.__parentId
       const parentEl = parent ? cy.getElementById(parent) : null
       const hop = h.__hopDepth ?? 1
-      const r = (HOP_RADIUS[hop] ?? 210) * HUB_RADIUS_FACTOR
+      const r = (HOP_RADIUS[hop] ?? 280) * HUB_RADIUS_FACTOR
       const el = cy.getElementById(h.id)
       if (el.empty()) continue
       if (parentEl && parentEl.nonempty()) {
@@ -663,6 +941,13 @@ function placeOrbitRings(cy: Core, data: GraphData) {
         el.position({ x: 0, y: -r })
       }
     }
+    resolveAtlasCollisions(
+      cy,
+      data.nodes.map((n) => n.id),
+      root,
+      40,
+      16,
+    )
   })
 }
 
@@ -1124,7 +1409,7 @@ function placeFamilyTree(cy: Core, data: GraphData) {
 
 function fitAfter(cy: Core) {
   cy.stop()
-  cy.fit(undefined, 56)
+  cy.fit(undefined, 72)
 }
 
 function runLayout(

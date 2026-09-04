@@ -241,5 +241,6 @@ export function labelBoxSize(
   return { label: c.label, width: c.width, height: c.height, textMax: c.textMax }
 }
 
-export const HOP_RADIUS = [0, 228, 390, 540, 670, 790] as const
-export const HUB_RADIUS_FACTOR = 0.52
+/** Outer orbit radii — roomy enough for hub chips + leaf cards without stacking. */
+export const HOP_RADIUS = [0, 280, 480, 660, 820, 960] as const
+export const HUB_RADIUS_FACTOR = 0.46
