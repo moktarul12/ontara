@@ -23,9 +23,11 @@ export function CompareFlyer({ store, comparePins, onAdd, onRemove, onClear }: P
 
   const step =
     comparePins.length === 0
-      ? 'Step 1 — search your first entity'
+      ? 'Step 1 — pick any entity (this locks the category)'
       : comparePins.length < MAX_COMPARE
-        ? `Step 2 — add ${comparePins.length === 1 ? 'one or two more' : 'one more'} in the same category`
+        ? category
+          ? `Step 2 — add peers in “${category.label}”`
+          : 'Step 2 — add one or two more in the same category'
         : 'Compare set full (3/3)'
 
   return (
@@ -35,12 +37,14 @@ export function CompareFlyer({ store, comparePins, onAdd, onRemove, onClear }: P
         <p className="facet-hint">{step}</p>
         {category && comparePins.length > 0 && (
           <p className="compare-flyer-category">
-            Category: <strong>{category.label}</strong>
-            {loading && <span className="muted"> · loading peers…</span>}
+            Locked category: <strong>{category.label}</strong>
+            {loading && <span className="muted"> · refreshing peers…</span>}
           </p>
         )}
         {!category && comparePins.length > 0 && !loading && (
-          <p className="compare-flyer-category muted">Category: detecting from Wikidata…</p>
+          <p className="compare-flyer-category muted">
+            Category: detecting from Wikidata occupation / industry / type…
+          </p>
         )}
       </div>
 
@@ -62,6 +66,9 @@ export function CompareFlyer({ store, comparePins, onAdd, onRemove, onClear }: P
             <li key={p.uri}>
               <span className="compare-flyer-pin-idx">{i + 1}</span>
               <span className="compare-flyer-pin-label">{p.label}</span>
+              {i === 0 && category && (
+                <span className="compare-flyer-pin-cat muted">{category.label}</span>
+              )}
               <button type="button" className="linkish" onClick={() => onRemove(p.uri)}>
                 Remove
               </button>

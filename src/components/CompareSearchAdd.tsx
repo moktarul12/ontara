@@ -3,7 +3,10 @@ import type { OntologyStore } from '../hooks/useOntologyStore'
 import { useCompareCategory } from '../hooks/useCompareCategory'
 import { enrichSearchHits } from '../services/searchEnrich'
 import { searchInContext } from '../services/sparql'
-import type { CompareCategory } from '../services/compareCategory'
+import {
+  hitFitsCompareCategory,
+  type CompareCategory,
+} from '../services/compareCategory'
 import type { SearchHitDetail } from '../types/ontology'
 import {
   buildCompareSuggestions,
@@ -27,6 +30,8 @@ interface Props {
   compact?: boolean
 }
 
+type PendingMismatch = { uri: string; label: string; hitKind: string }
+
 export function CompareSearchAdd({
   store,
   comparePins,
@@ -40,6 +45,7 @@ export function CompareSearchAdd({
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [searchHits, setSearchHits] = useState<SearchHitDetail[]>([])
+  const [pendingMismatch, setPendingMismatch] = useState<PendingMismatch | null>(null)
 
   const pinnedUris = useMemo(
     () => new Set(comparePins.map((p) => entityKey(p.uri))),
@@ -125,11 +131,35 @@ export function CompareSearchAdd({
     })
   }, [hasAnchor, query, suggestions, searchHits, pinnedUriSet, pinnedLabels, wdPeers])
 
-  const pick = (uri: string, label: string) => {
+  const commitAdd = (uri: string, label: string) => {
     if (pinnedUris.has(entityKey(uri))) return
     onAdd(uri, label)
     setQuery('')
     setSearchHits([])
+    setPendingMismatch(null)
+  }
+
+  /** Soft category lock: peers always ok; search mismatches need confirm. */
+  const pick = (uri: string, label: string, fromPeerChip = false) => {
+    if (pinnedUris.has(entityKey(uri))) return
+    if (!hasAnchor || !category || fromPeerChip) {
+      commitAdd(uri, label)
+      return
+    }
+    const detail = searchHits.find((h) => h.uri === uri)
+    const fit = hitFitsCompareCategory(
+      detail ?? { kind: category.kind, categoryLabel: category.label },
+      category,
+    )
+    if (fit === 'mismatch') {
+      setPendingMismatch({
+        uri,
+        label,
+        hitKind: detail?.categoryLabel || detail?.kind || 'different type',
+      })
+      return
+    }
+    commitAdd(uri, label)
   }
 
   const placeholder =
@@ -144,6 +174,16 @@ export function CompareSearchAdd({
 
   return (
     <div className={`compare-search ${compact ? 'is-compact' : ''}`}>
+      {hasAnchor && category && (
+        <div className="compare-category-lock" role="status">
+          <span className="compare-category-lock-kicker">Same category</span>
+          <strong className="compare-category-lock-label">{category.label}</strong>
+          <span className="compare-category-lock-hint muted">
+            Peers & search stay in this category · clear pins to switch
+          </span>
+        </div>
+      )}
+
       <label className="compare-search-label">
         <span className="sr-only">Search to add entity</span>
         <input
@@ -151,20 +191,48 @@ export function CompareSearchAdd({
           className="compare-search-input"
           placeholder={placeholder}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setPendingMismatch(null)
+          }}
           autoComplete="off"
           spellCheck={false}
         />
       </label>
       {(busy || peersLoading) && (
-        <p className="compare-search-meta muted">{busy ? 'Searching…' : 'Loading suggestions…'}</p>
+        <p className="compare-search-meta muted">{busy ? 'Searching…' : 'Loading peers…'}</p>
       )}
       {err && <p className="compare-search-err">{err}</p>}
+
+      {pendingMismatch && category && (
+        <div className="compare-category-warn" role="alert">
+          <p>
+            <strong>{pendingMismatch.label}</strong> looks like{' '}
+            <em>{pendingMismatch.hitKind}</em>, not <em>{category.label}</em>.
+          </p>
+          <div className="compare-category-warn-actions">
+            <button
+              type="button"
+              className="eh-btn ghost compact"
+              onClick={() => setPendingMismatch(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="eh-btn compact"
+              onClick={() => commitAdd(pendingMismatch.uri, pendingMismatch.label)}
+            >
+              Add anyway
+            </button>
+          </div>
+        </div>
+      )}
 
       {hasAnchor && chips.length > 0 && (
         <div className="compare-suggest-chips">
           <span className="compare-suggest-label muted">
-            {category ? category.label : 'Same category'}
+            {category ? `Peers · ${category.label}` : 'Same category'}
           </span>
           {chips.map((s) => (
             <button
@@ -172,7 +240,7 @@ export function CompareSearchAdd({
               type="button"
               className="compare-suggest-chip"
               title={s.reason}
-              onClick={() => pick(s.uri, s.label)}
+              onClick={() => pick(s.uri, s.label, true)}
             >
               {s.label}
             </button>
@@ -192,13 +260,14 @@ export function CompareSearchAdd({
                 categoryLabel: s.reason ?? category?.label ?? 'Entity',
                 description: s.reason,
               } satisfies SearchHitDetail)
+            const fit = hitFitsCompareCategory(detail, category)
             return (
               <li key={s.uri}>
                 <SearchHitCard
                   hit={detail}
                   compact
-                  actionLabel="Add to compare"
-                  onClick={() => pick(s.uri, s.label)}
+                  actionLabel={fit === 'mismatch' ? 'Different category' : 'Add to compare'}
+                  onClick={() => pick(s.uri, s.label, false)}
                 />
               </li>
             )

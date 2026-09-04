@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { OntologyStore } from '../hooks/useOntologyStore'
+import { useCompareCategory } from '../hooks/useCompareCategory'
 import { fetchDataProperties, fetchResourceClasses } from '../services/sparql'
 import type { DataProperty, GraphNode } from '../types/ontology'
 import { entityKey, entityUrisMatch } from '../utils/entityUrl'
@@ -146,6 +147,9 @@ function CompareTable({
 
 export function CompareView({ store, comparePins, onOpen, onRemove, onClear }: Props) {
   const [pinMeta, setPinMeta] = useState<Record<string, PinMeta>>({})
+  const anchorUri = comparePins[0]?.uri
+  const excludeUris = useMemo(() => comparePins.map((p) => p.uri), [comparePins])
+  const { category } = useCompareCategory(store.config.endpoint, anchorUri, excludeUris)
 
   useEffect(() => {
     let cancelled = false
@@ -275,11 +279,17 @@ export function CompareView({ store, comparePins, onOpen, onRemove, onClear }: P
         Compare
         {comparePins.length > 0 ? ` (${comparePins.length}/${MAX_COMPARE})` : ''}
       </h2>
+      {category && comparePins.length > 0 && (
+        <p className="compare-view-category">
+          Same category: <strong>{category.label}</strong>
+        </p>
+      )}
 
       {comparePins.length === 0 && (
         <p className="muted">
-          Use the <strong>Compare builder</strong> panel on the right to search your first entity,
-          then add up to <strong>{MAX_COMPARE}</strong> in the same category.
+          Use the <strong>Compare builder</strong> on the right: pin one entity to lock a category
+          (occupation, industry, or type), then add up to <strong>{MAX_COMPARE}</strong> peers in
+          that category.
         </p>
       )}
 

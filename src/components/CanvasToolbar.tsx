@@ -258,9 +258,13 @@ export function CanvasToolbar({
       <div className="canvas-toolbar" role="toolbar" aria-label="Canvas tools">
         <button
           type="button"
-          className={`canvas-tool ${layoutMode === 'auto' ? 'on' : ''}`}
-          title="Auto arrange"
-          onClick={() => onLayoutMode('auto')}
+          className={`canvas-tool ${!inFamily && layoutMode === 'auto' ? 'on' : ''}`}
+          title={inFamily ? 'Re-arrange family tree' : 'Auto arrange'}
+          onClick={() => {
+            // In family mode, Arrange must re-run the pedigree — never cose/force layout
+            if (inFamily) onFamilyTree()
+            else onLayoutMode('auto')
+          }}
         >
           <IconArrange />
           <span className="canvas-tool-tip">Arrange</span>

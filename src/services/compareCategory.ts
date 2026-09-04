@@ -233,6 +233,35 @@ export async function fetchCompareCategoryPeers(
   }
 }
 
+/** How well a search hit fits the locked compare category. */
+export function hitFitsCompareCategory(
+  hit: { kind?: string; categoryLabel?: string },
+  category: CompareCategory | null | undefined,
+): 'exact' | 'kind' | 'mismatch' | 'unknown' {
+  if (!category) return 'unknown'
+  const kind = (hit.kind || '').toLowerCase()
+  const catKind = category.kind
+  if (kind && kind !== 'entity' && kind !== catKind) return 'mismatch'
+
+  const label = (hit.categoryLabel || '').toLowerCase()
+  if (label) {
+    const target = category.matchLabel.toLowerCase()
+    const catLabel = category.label.toLowerCase()
+    if (
+      label === target ||
+      label === catLabel ||
+      label.includes(target) ||
+      target.includes(label) ||
+      catLabel.includes(label)
+    ) {
+      return 'exact'
+    }
+  }
+
+  if (!kind || kind === catKind || kind === 'entity') return 'kind'
+  return 'mismatch'
+}
+
 export async function loadCompareCategoryBundle(
   endpoint: string,
   anchorUri: string,

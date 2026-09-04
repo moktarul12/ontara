@@ -20,7 +20,7 @@ import {
   atlasShape,
 } from '../utils/nodeKind'
 import { graphHasOntologyHubs } from '../utils/treeLayout'
-import { buildKinMaps } from '../utils/familyTreeGraph'
+import { buildKinMaps, roleBadge } from '../utils/familyTreeGraph'
 import { GraphLegend } from './GraphLegend'
 
 cytoscape.use(coseBilkent)
@@ -104,39 +104,62 @@ function buildElements(data: GraphData): ElementDefinition[] {
     const hop = Math.min(5, Math.max(0, n.__hopDepth ?? 0))
     const colors = ontologyNodeColors(n)
     const isRoot = n.id === rootId
+    const isFamilyPerson =
+      n.type !== 'relation' &&
+      n.type !== 'literal' &&
+      (n.__familyRole != null || typeof n.__familyGen === 'number')
     const hasImage = Boolean(n.__imageUrl && (isRoot || n.type === 'resource'))
     const card = informativeCard(n, {
       root: isRoot,
       degree: degrees.get(n.id) ?? 0,
       childCount: children.get(n.id) ?? 0,
     })
-    const shape = atlasShape(n, isRoot)
-    const boxW = isRoot
+    const role = isFamilyPerson ? roleBadge(n.__familyRole) : ''
+    // Mockup: seed stays circular with portrait; relatives are tall rounded cards
+    const familyFocus = isFamilyPerson && (n.__familyRole === 'seed' || isRoot)
+    let shape = atlasShape(n, isRoot)
+    let boxW = isRoot
       ? hasImage
-        ? 124
-        : Math.max(card.width, 118)
+        ? 112
+        : Math.max(card.width, 110)
       : n.type === 'relation'
-        ? card.width
+        ? Math.max(card.width, 70)
         : card.kind === 'person'
-          ? Math.max(card.width, 96)
+          ? Math.max(card.width, 92)
           : card.width
-    const boxH = isRoot
+    let boxH = isRoot
       ? hasImage
-        ? 124
-        : 62
+        ? 108
+        : 52
       : n.type === 'relation'
-        ? 28
+        ? 22
         : card.kind === 'person'
-          ? Math.max(card.height, 52)
+          ? Math.max(card.height, 42)
           : card.height
+    let label = card.label
+
+    if (isFamilyPerson && n.type !== 'relation') {
+      if (familyFocus && hasImage) {
+        shape = 'ellipse'
+        boxW = 120
+        boxH = 120
+        label = card.title
+      } else {
+        shape = 'round-rectangle'
+        boxW = 98
+        boxH = 112
+        const name = card.title.length > 20 ? `${card.title.slice(0, 19)}…` : card.title
+        label = role ? `${name}\n— ${role} —` : name
+      }
+    }
 
     return {
       group: 'nodes',
       data: {
         id: n.id,
-        label: card.label,
+        label,
         fullLabel: n.label,
-        subtitle: card.subtitle,
+        subtitle: role || card.subtitle,
         kind: card.kind,
         hopDepth: hop,
         nodeType: n.type,
@@ -146,14 +169,25 @@ function buildElements(data: GraphData): ElementDefinition[] {
         classesLine: (n.classes ?? []).slice(0, 3).join(' · '),
         boxW,
         boxH,
-        textMax: card.textMax,
+        textMax: isFamilyPerson && !familyFocus ? boxW - 12 : card.textMax,
         clusterKey: n.__clusterKey ?? '',
         parentId: n.__parentId ?? '',
-        fill: colors.fill,
-        border: colors.border,
-        textColor: colors.text,
+        fill: isFamilyPerson && !familyFocus ? '#fffaf3' : colors.fill,
+        border: isFamilyPerson
+          ? n.__familyRole === 'spouse'
+            ? '#b45309'
+            : n.__familyRole === 'sibling'
+              ? '#c0267a'
+              : n.__familyRole === 'parent'
+                ? '#0d7a72'
+                : familyFocus
+                  ? '#c07818'
+                  : '#c4b8a8'
+          : colors.border,
+        textColor: isFamilyPerson && !familyFocus ? '#1a2332' : colors.text,
         imageUrl: n.__imageUrl ?? '',
         atlasShape: shape,
+        familyRole: n.__familyRole ?? '',
       },
       classes: [
         `hop-${hop}`,
@@ -164,6 +198,13 @@ function buildElements(data: GraphData): ElementDefinition[] {
         (n.classes?.includes('Kinship') || n.id.startsWith('relhub:'))
           ? 'is-kinship'
           : '',
+        n.type === 'relation' &&
+        (n.classes?.includes('Kinship') || n.id.startsWith('relhub:'))
+          ? `kin-${(n.label || 'link').toLowerCase().replace(/\s+/g, '-')}`
+          : '',
+        isFamilyPerson && n.type !== 'relation' ? 'family-card' : '',
+        familyFocus ? 'family-seed' : '',
+        isFamilyPerson && n.__familyRole ? `family-role-${n.__familyRole}` : '',
         isRoot ? 'is-root' : '',
         hasImage ? 'has-image' : '',
         `shape-${card.kind}`,
@@ -173,11 +214,17 @@ function buildElements(data: GraphData): ElementDefinition[] {
       style: {
         width: boxW,
         height: boxH,
-        'background-color': colors.fill,
-        'border-color': colors.border,
-        color: colors.text,
+        'background-color': isFamilyPerson && !familyFocus ? '#fffaf3' : colors.fill,
+        'border-color': isFamilyPerson
+          ? n.__familyRole === 'spouse'
+            ? '#b45309'
+            : familyFocus
+              ? '#c07818'
+              : '#c4b8a8'
+          : colors.border,
+        color: isFamilyPerson && !familyFocus ? '#1a2332' : colors.text,
         shape,
-        'text-max-width': card.textMax,
+        'text-max-width': isFamilyPerson && !familyFocus ? boxW - 12 : card.textMax,
         ...(hasImage
           ? {
               'background-image': n.__imageUrl,
@@ -186,12 +233,12 @@ function buildElements(data: GraphData): ElementDefinition[] {
               'background-clip': 'node',
               'background-image-opacity': 1,
               'background-position-y': '0%',
-              'background-height': isRoot ? '72%' : '100%',
+              'background-height': familyFocus ? '78%' : isRoot ? '72%' : '100%',
               'background-width': '100%',
-              'text-valign': isRoot ? 'bottom' : 'center',
-              'text-margin-y': isRoot ? 8 : 0,
+              'text-valign': familyFocus || isRoot ? 'bottom' : 'center',
+              'text-margin-y': familyFocus || isRoot ? 8 : 0,
               'text-background-color': '#ffffff',
-              'text-background-opacity': isRoot ? 0.92 : 0,
+              'text-background-opacity': familyFocus || isRoot ? 0.92 : 0,
               'text-background-padding': '3px',
               'text-background-shape': 'roundrectangle',
             }
@@ -208,9 +255,24 @@ function buildElements(data: GraphData): ElementDefinition[] {
     const palette = hopStyle(edgeHop)
     const srcNode = data.nodes.find((n) => n.id === source)
     const tgtNode = data.nodes.find((n) => n.id === target)
-    const hubEdge =
-      srcNode?.type === 'relation' || tgtNode?.type === 'relation'
+    const hubNode =
+      srcNode?.type === 'relation'
+        ? srcNode
+        : tgtNode?.type === 'relation'
+          ? tgtNode
+          : undefined
+    const hubEdge = Boolean(hubNode)
     const kinEdge = source.startsWith('relhub:') || target.startsWith('relhub:')
+    const kinLabel = (hubNode?.label || '').toLowerCase()
+    const kinLine = kinEdge
+      ? `kin-line-${kinLabel.replace(/\s+/g, '-') || 'link'}`
+      : ''
+    const kinAxis =
+      kinEdge && (kinLabel === 'spouse' || kinLabel === 'sibling')
+        ? 'kin-lateral'
+        : kinEdge
+          ? 'kin-vertical'
+          : ''
     const toLiteral = srcNode?.type === 'literal' || tgtNode?.type === 'literal'
     const dir = srcNode?.__direction || tgtNode?.__direction || 'out'
     const label = hubEdge ? '' : (l.predicateLabel || '').slice(0, 16)
@@ -235,6 +297,8 @@ function buildElements(data: GraphData): ElementDefinition[] {
         `edge-hop-${edgeHop}`,
         toLiteral ? 'literal-edge' : '',
         kinEdge ? 'kin-edge' : hubEdge ? 'hub-edge' : '',
+        kinAxis,
+        kinLine,
         dir === 'in' ? 'flow-in' : 'flow-out',
       ]
         .filter(Boolean)
@@ -291,44 +355,88 @@ const CY_STYLE = [
     style: {
       'font-size': 8,
       'font-weight': 800,
-      'letter-spacing': 0.4,
-      'text-transform': 'lowercase',
-      'border-width': 1.6,
-      'border-color': '#0d7a72',
-      'background-color': '#e8f6f4',
-      color: '#0a3d3a',
+      'letter-spacing': 0.35,
+      'text-transform': 'capitalize',
+      'border-width': 0,
+      'background-color': '#2f9e8f',
+      color: '#ffffff',
       shape: 'round-rectangle',
-      width: 72,
-      height: 26,
-      'z-index': 12,
-      'shadow-blur': 10,
-      'shadow-color': 'rgba(13, 122, 114, 0.28)',
-      'shadow-opacity': 0.8,
+      width: 70,
+      height: 22,
+      'z-index': 20,
+      'shadow-blur': 0,
+      'shadow-opacity': 0,
+      'text-valign': 'center',
+      'text-halign': 'center',
     },
+  },
+  {
+    selector: 'node.is-kinship.kin-spouse',
+    style: { 'background-color': '#8b6bb5' },
+  },
+  {
+    selector: 'node.is-kinship.kin-sibling',
+    style: { 'background-color': '#d4789a' },
+  },
+  {
+    selector: 'node.is-kinship.kin-child, node.is-kinship.kin-children',
+    style: { 'background-color': '#c45c5c' },
+  },
+  {
+    selector: 'node.is-kinship.kin-father, node.is-kinship.kin-mother, node.is-kinship.kin-parents',
+    style: { 'background-color': '#2f9e8f' },
   },
   {
     selector: 'edge.kin-edge',
     style: {
-      width: 1.65,
-      'curve-style': 'bezier',
-      'control-point-step-size': 36,
+      width: 1.75,
+      'curve-style': 'straight',
       'target-arrow-shape': 'none',
+      'source-arrow-shape': 'none',
+      'source-endpoint': 'outside-to-node',
+      'target-endpoint': 'outside-to-node',
       label: '',
-      opacity: 0.72,
-      'line-color': 'rgba(13, 122, 114, 0.55)',
+      opacity: 0.88,
+      'line-color': 'rgba(47, 158, 143, 0.75)',
     },
   },
   {
-    selector: 'edge.kin-edge.tree-trunk',
+    // Spouse / sibling: clean horizontal bar through the pill (no taxi zigzags)
+    selector: 'edge.kin-edge.kin-lateral',
     style: {
-      width: 2.1,
-      'curve-style': 'taxi',
-      'taxi-direction': 'vertical',
-      'taxi-turn': 42,
-      'taxi-turn-min-distance': 18,
-      opacity: 0.8,
-      'line-color': 'rgba(10, 90, 84, 0.62)',
+      'curve-style': 'straight',
+      width: 1.85,
     },
+  },
+  {
+    // Parent / child stems: soft orthogonal T-junctions
+    selector: 'edge.kin-edge.kin-vertical, edge.kin-edge.tree-trunk',
+    style: {
+      'curve-style': 'round-taxi',
+      'taxi-direction': 'downward',
+      'taxi-turn': 42,
+      'taxi-turn-min-distance': 28,
+      'taxi-radius': 10,
+      width: 1.9,
+      opacity: 0.9,
+    },
+  },
+  {
+    selector: 'edge.kin-edge.kin-line-spouse',
+    style: { 'line-color': 'rgba(139, 107, 181, 0.9)' },
+  },
+  {
+    selector: 'edge.kin-edge.kin-line-sibling',
+    style: { 'line-color': 'rgba(212, 120, 154, 0.9)' },
+  },
+  {
+    selector: 'edge.kin-edge.kin-line-child, edge.kin-edge.kin-line-children',
+    style: { 'line-color': 'rgba(196, 92, 92, 0.85)' },
+  },
+  {
+    selector:
+      'edge.kin-edge.kin-line-father, edge.kin-edge.kin-line-mother, edge.kin-edge.kin-line-parents',
+    style: { 'line-color': 'rgba(47, 158, 143, 0.9)' },
   },
   {
     selector: 'node.is-person',
@@ -340,34 +448,65 @@ const CY_STYLE = [
     },
   },
   {
+    selector: 'node.family-card',
+    style: {
+      shape: 'round-rectangle',
+      'background-color': '#fffaf3',
+      'border-width': 1.6,
+      'border-color': '#c4b8a8',
+      color: '#1a2332',
+      'font-size': 9,
+      'font-weight': 700,
+      'text-wrap': 'wrap',
+      'text-valign': 'center',
+      'text-halign': 'center',
+      'line-height': 1.2,
+      'shadow-blur': 12,
+      'shadow-color': 'rgba(26, 35, 50, 0.16)',
+      'shadow-opacity': 0.7,
+      'shadow-offset-y': 3,
+      'z-index': 14,
+    },
+  },
+  {
     selector: 'node.family-seed',
     style: {
+      shape: 'ellipse',
       'border-color': '#c07818',
       'border-width': 4,
       'background-color': '#fff8ef',
       'z-index': 30,
+      'shadow-blur': 16,
+      'shadow-color': 'rgba(192, 120, 24, 0.4)',
+      'shadow-opacity': 0.85,
     },
   },
   {
     selector: 'node.family-role-parent',
     style: {
       'border-color': '#0d7a72',
-      'background-color': '#eef8f6',
+      color: '#0d7a72',
     },
   },
   {
     selector: 'node.family-role-spouse',
     style: {
       'border-color': '#b45309',
-      'background-color': '#fff7ed',
-      'border-style': 'dashed',
+      color: '#9a3412',
+    },
+  },
+  {
+    selector: 'node.family-role-sibling',
+    style: {
+      'border-color': '#c0267a',
+      color: '#9d174d',
     },
   },
   {
     selector: 'node.family-role-child',
     style: {
-      'border-color': '#6366f1',
-      'background-color': '#eef2ff',
+      'border-color': '#4f46e5',
+      color: '#3730a3',
     },
   },
   {
@@ -429,6 +568,14 @@ const CY_STYLE = [
     },
   },
   { selector: 'node.kind-person', style: { shape: 'ellipse' } },
+  {
+    selector: 'node.family-card, node.family-card.kind-person',
+    style: { shape: 'round-rectangle' },
+  },
+  {
+    selector: 'node.family-seed, node.family-seed.kind-person',
+    style: { shape: 'ellipse' },
+  },
   { selector: 'node.kind-work', style: { shape: 'barrel' } },
   { selector: 'node.kind-place', style: { shape: 'hexagon' } },
   { selector: 'node.kind-org', style: { shape: 'octagon' } },
@@ -953,22 +1100,22 @@ function placeOrbitRings(cy: Core, data: GraphData) {
 
 type KinMaps = ReturnType<typeof buildKinMaps>
 
-/** Approximate person node width for spacing (matches buildElements). */
+/** Approximate person node width for spacing (matches family cards). */
 function familyPersonSpan(n: GraphNode, seedId?: string): number {
   const isSeed = n.id === seedId || n.__familyRole === 'seed'
   const hasImage = Boolean(n.__imageUrl)
-  if (isSeed && hasImage) return 132
-  if (isSeed) return 120
-  if (hasImage) return 108
-  return 100
+  if (isSeed && hasImage) return 124
+  if (isSeed) return 108
+  // Tall rounded-rectangle cards
+  return 102
 }
 
-const HUB_W = 76
-const HUB_H = 28
-/** Clear air between node edges (horizontal). */
-const FAMILY_BREATHE = 96
-/** Reserved strip so a relation chip can sit between two people. */
-const HUB_LANE = HUB_W + 48
+const HUB_W = 72
+const HUB_H = 24
+/** Horizontal air between non-kin neighbors. */
+const FAMILY_BREATHE = 40
+/** Extra lane so spouse/sibling chips sit between people (mockup style). */
+const HUB_LANE = HUB_W + 24
 
 function areSpouses(maps: KinMaps, a: string, b: string): boolean {
   return (maps.spousesOf.get(a) ?? []).includes(b)
@@ -978,7 +1125,7 @@ function areSiblings(maps: KinMaps, a: string, b: string): boolean {
   return (maps.siblingsOf.get(a) ?? []).includes(b)
 }
 
-/** Center-to-center gap: kin pairs leave a lane for the spouse/sibling hub. */
+/** Center-to-center gap for two people on the same generation row. */
 function familyPairGap(
   maps: KinMaps,
   a: GraphNode,
@@ -986,15 +1133,12 @@ function familyPairGap(
   seedId: string | undefined,
 ): number {
   const radii = familyPersonSpan(a, seedId) / 2 + familyPersonSpan(b, seedId) / 2
-  if (areSpouses(maps, a.id, b.id)) return radii + FAMILY_BREATHE + HUB_LANE + 56
-  if (areSiblings(maps, a.id, b.id)) return radii + FAMILY_BREATHE + HUB_LANE + 36
-  return radii + FAMILY_BREATHE + 64
+  if (areSpouses(maps, a.id, b.id)) return radii + FAMILY_BREATHE + HUB_LANE + 8
+  if (areSiblings(maps, a.id, b.id)) return radii + FAMILY_BREATHE + HUB_LANE
+  return radii + FAMILY_BREATHE + 28
 }
 
-/**
- * Spread a generation outward from the focus so both sides get room —
- * not only a left-to-right shove.
- */
+/** Push same-generation people apart; expand from focus both ways. */
 function spreadFamilyPeopleRow(
   row: GraphNode[],
   xOf: Map<string, number>,
@@ -1004,44 +1148,42 @@ function spreadFamilyPeopleRow(
 ) {
   if (row.length <= 1) return
   const sorted = [...row].sort((a, b) => (xOf.get(a.id) ?? 0) - (xOf.get(b.id) ?? 0))
+  const needAt = (i: number) => familyPairGap(maps, sorted[i - 1]!, sorted[i]!, seedId)
 
-  const needAt = (i: number) =>
-    familyPairGap(maps, sorted[i - 1]!, sorted[i]!, seedId)
-
-  // Left → right
   for (let i = 1; i < sorted.length; i++) {
     const need = needAt(i)
     const prevX = xOf.get(sorted[i - 1]!.id)!
     const currX = xOf.get(sorted[i]!.id)!
     if (currX - prevX < need) xOf.set(sorted[i]!.id, prevX + need)
   }
-  // Right → left (keeps left branch from staying cramped)
   for (let i = sorted.length - 1; i >= 1; i--) {
     const need = needAt(i)
     const prevX = xOf.get(sorted[i - 1]!.id)!
     const currX = xOf.get(sorted[i]!.id)!
     if (currX - prevX < need) xOf.set(sorted[i - 1]!.id, currX - need)
   }
-
-  // Re-anchor around focus / row median so the tree stays centered
   const anchorId =
     (focusId && sorted.some((n) => n.id === focusId) ? focusId : null) ??
     sorted[Math.floor(sorted.length / 2)]!.id
   const before = xOf.get(anchorId) ?? 0
-  // Second L→R after RTL may have shifted anchor; re-run L→R once more
   for (let i = 1; i < sorted.length; i++) {
     const need = needAt(i)
     const prevX = xOf.get(sorted[i - 1]!.id)!
     const currX = xOf.get(sorted[i]!.id)!
     if (currX - prevX < need) xOf.set(sorted[i]!.id, prevX + need)
   }
-  const after = xOf.get(anchorId) ?? 0
-  const drift = after - before
+  const drift = (xOf.get(anchorId) ?? 0) - before
   if (Math.abs(drift) > 0.5) {
     for (const n of sorted) xOf.set(n.id, (xOf.get(n.id) ?? 0) - drift)
   }
 }
 
+/**
+ * Pedigree hubs — positions match the family-tree mockup:
+ * - Spouse / Sibling pills sit ON the horizontal bar between people (same Y)
+ * - Child / Parents pills sit ON the vertical stem under the couple midpoint
+ * - Orthogonal taxi edges then form clean T-junctions
+ */
 function placeHubsFromMaps(
   cy: Core,
   maps: KinMaps,
@@ -1049,112 +1191,101 @@ function placeHubsFromMaps(
   yOf: Map<string, number>,
   band: number,
 ) {
-  const { hubs, byId, hubSubject, hubKids, people } = maps
+  const { hubs, byId, hubSubject, hubKids, spousesOf, people } = maps
   const hubPos = new Map<string, { x: number; y: number }>()
 
-  // Group hubs by subject so multiple kinship chips don't stack
-  const bySubject = new Map<string, typeof hubs>()
+  const coupleBarX = (subjectId: string, fallback: number): number => {
+    const sx = xOf.get(subjectId)
+    if (sx == null) return fallback
+    const spouseId = (spousesOf.get(subjectId) ?? []).find((id) => xOf.has(id))
+    if (!spouseId) return sx
+    const spx = xOf.get(spouseId)
+    return spx == null ? sx : (sx + spx) / 2
+  }
+
   for (const hub of hubs) {
     const subjectId = hubSubject.get(hub.id) || hub.__parentId || ''
-    const list = bySubject.get(subjectId) ?? []
-    list.push(hub)
-    bySubject.set(subjectId, list)
-  }
-
-  for (const [subjectId, subjectHubs] of bySubject) {
-    // Lateral kin first (spouse/sibling) so they claim the midpoint lane;
-    // vertical kin (child/parent) fan in the generation gutter.
-    const rank = (h: GraphNode) => {
-      const l = (h.label || '').toLowerCase()
-      if (l === 'spouse') return 0
-      if (l === 'sibling') return 1
-      return 2
-    }
-    subjectHubs.sort(
-      (a, b) => rank(a) - rank(b) || a.label.localeCompare(b.label),
+    const kids = hubKids.get(hub.id) ?? []
+    const label = (hub.label || '').toLowerCase()
+    const isSpouse = label === 'spouse'
+    const isSibling = label === 'sibling'
+    const sx = subjectId ? xOf.get(subjectId) : undefined
+    const sy =
+      subjectId !== ''
+        ? (yOf.get(subjectId) ?? (byId.get(subjectId)?.__familyGen ?? 0) * band)
+        : 0
+    const kidXs = kids.map((id) => xOf.get(id)).filter((x): x is number => x != null)
+    const kidYs = kids.map(
+      (id) => yOf.get(id) ?? (byId.get(id)?.__familyGen ?? 0) * band,
     )
-    const lateral = subjectHubs.filter((h) => {
-      const l = (h.label || '').toLowerCase()
-      return l === 'spouse' || l === 'sibling'
-    })
-    const vertical = subjectHubs.filter((h) => !lateral.includes(h))
 
-    const placeOne = (hub: GraphNode, hi: number, group: GraphNode[], lateralHub: boolean) => {
-      const kids = hubKids.get(hub.id) ?? []
-      const sx = subjectId ? xOf.get(subjectId) : undefined
-      const sy =
-        subjectId != null && subjectId !== ''
-          ? (yOf.get(subjectId) ?? (byId.get(subjectId)?.__familyGen ?? 0) * band)
-          : 0
-      const kidXs = kids.map((id) => xOf.get(id)).filter((x): x is number => x != null)
-      const kidYs = kids.map(
-        (id) => yOf.get(id) ?? (byId.get(id)?.__familyGen ?? 0) * band,
-      )
+    let x = sx ?? 0
+    let y = sy + band * 0.45
 
-      let x = sx ?? 0
-      let y = sy + band * 0.5
+    if (kidXs.length) {
+      const ax = kidXs.reduce((a, b) => a + b, 0) / kidXs.length
+      const ay = kidYs.reduce((a, b) => a + b, 0) / kidYs.length
+      const sameRow = Math.abs(ay - sy) < band * 0.3
 
-      if (kidXs.length) {
-        const ax = kidXs.reduce((a, b) => a + b, 0) / kidXs.length
-        const ay = kidYs.reduce((a, b) => a + b, 0) / kidYs.length
-        x = sx != null ? (sx + ax) / 2 : ax
-        if (lateralHub && sx != null && Math.abs(ay - sy) < band * 0.25) {
-          // Same-generation kin: sit in the horizontal lane between the pair
-          y = sy
+      if (isSpouse && sameRow && sx != null) {
+        // Mockup: purple Spouse pill centered on the marriage bar
+        x = (sx + (kidXs[0] ?? ax)) / 2
+        y = sy
+      } else if (isSibling && sameRow) {
+        // Mockup: pink Sibling pill on the horizontal connector (same Y as people)
+        const allX = sx != null ? [sx, ...kidXs] : kidXs
+        x = allX.reduce((a, b) => a + b, 0) / allX.length
+        y = sy
+      } else if (subjectId) {
+        // Vertical kin: stem under couple bar (Children / Parents / Child / Father…)
+        const barX = coupleBarX(subjectId, sx ?? ax)
+        const goingDown = ay > sy + band * 0.1
+        if (goingDown) {
+          // Children pill on the drop from the couple, before the T-junction
+          x = barX
+          y = sy + (ay - sy) * 0.4
         } else {
-          y = (sy + ay) / 2
+          // Parents / father / mother pill on the ascent
+          x = (barX + ax) / 2
+          y = sy + (ay - sy) * 0.5
         }
-      } else if (sx != null) {
-        x = sx
-        y = sy + band * 0.42
+      } else {
+        x = ax
+        y = (sy + ay) / 2
       }
-
-      // Fan only within the same group so spouse isn't shoved into a person
-      const fan = (hi - (group.length - 1) / 2) * (HUB_W + (lateralHub ? 20 : 36))
-      if (!lateralHub || group.length > 1) x += fan
-
-      hubPos.set(hub.id, { x, y })
     }
 
-    lateral.forEach((hub, hi) => placeOne(hub, hi, lateral, true))
-    vertical.forEach((hub, hi) => placeOne(hub, hi, vertical, false))
+    hubPos.set(hub.id, { x: Math.round(x), y: Math.round(y) })
   }
 
-  // Nudge hubs away from people if they land too close
-  for (const [, pos] of hubPos) {
+  // Only nudge hubs that landed inside a person card (keep bar pills on the lane)
+  for (const [hubId, pos] of hubPos) {
+    const hub = maps.hubs.find((h) => h.id === hubId)
+    const label = (hub?.label || '').toLowerCase()
+    const onBar = label === 'spouse' || label === 'sibling'
     for (const person of people) {
       const px = xOf.get(person.id)
       const py = yOf.get(person.id)
       if (px == null || py == null) continue
-      const minX = familyPersonSpan(person) / 2 + HUB_W / 2 + 28
-      const minY = 44 + HUB_H / 2
-      const dx = pos.x - px
-      const dy = pos.y - py
-      if (Math.abs(dx) < minX && Math.abs(dy) < minY) {
-        // Prefer horizontal nudge for same-row collisions (spouse/sibling lane)
-        if (Math.abs(dy) < 18) {
-          pos.x = px + (dx >= 0 || dx === 0 ? minX : -minX)
-        } else {
-          if (Math.abs(dy) < minY) {
-            pos.y = py + (dy >= 0 ? minY : -minY)
-          }
-          if (Math.abs(pos.x - px) < minX * 0.55) {
-            pos.x = px + (dx >= 0 ? minX : -minX)
-          }
-        }
+      const minX = familyPersonSpan(person) / 2 + HUB_W / 2 + 10
+      const minY = onBar ? 18 : 24 + HUB_H / 2
+      if (Math.abs(pos.x - px) < minX && Math.abs(pos.y - py) < minY) {
+        // Slide along the bar for spouse/sibling; vertical kin go into the gutter
+        if (onBar) pos.x = px + (pos.x >= px ? minX : -minX)
+        else pos.y = py + (pos.y >= py ? minY : -minY)
       }
     }
   }
 
-  // Separate hubs from each other
-  const hubList = [...hubPos.entries()]
-  hubList.sort((a, b) => a[1].x - b[1].x || a[1].y - b[1].y)
-  for (let i = 1; i < hubList.length; i++) {
-    const prev = hubList[i - 1]![1]
-    const curr = hubList[i]![1]
-    const minDist = HUB_W + 32
-    if (Math.abs(curr.y - prev.y) < HUB_H + 14 && curr.x - prev.x < minDist) {
-      curr.x = prev.x + minDist
+  // De-overlap hubs that share a bar or stem
+  const list = [...hubPos.entries()].sort(
+    (a, b) => a[1].y - b[1].y || a[1].x - b[1].x,
+  )
+  for (let i = 1; i < list.length; i++) {
+    const prev = list[i - 1]![1]
+    const curr = list[i]![1]
+    if (Math.abs(curr.y - prev.y) < HUB_H + 6 && curr.x - prev.x < HUB_W + 14) {
+      curr.x = prev.x + HUB_W + 14
     }
   }
 
@@ -1165,17 +1296,16 @@ function placeHubsFromMaps(
 }
 
 /**
- * Family tree with relation hubs: people on generation rows, hubs in the gutters.
- * Wide horizontal lanes so spouse/sibling chips sit cleanly between people.
+ * Classic pedigree arrange (matches family-tree mockup):
+ * generation rows, couple blocks, children centered under parents, orthogonal edges.
  */
 function placeFamilyTree(cy: Core, data: GraphData) {
   const maps = buildKinMaps(data)
   const { people, parentsOf, spousesOf, childrenOf } = maps
-  const BAND = 280
-  /** Default edge-to-edge air when kin type is unknown. */
-  const PAD = FAMILY_BREATHE + 40
-  const GAP = 260
-  const BRANCH_GAP = 72
+  const BAND = 230
+  const PAD = FAMILY_BREATHE + 20
+  const GAP = 180
+  const BRANCH_GAP = 110
   const xOf = new Map<string, number>()
   const yOf = new Map<string, number>()
   const placed = new Set<string>()
@@ -1196,29 +1326,34 @@ function placeFamilyTree(cy: Core, data: GraphData) {
 
   const minLeaf = (id: string) => {
     const n = maps.byId.get(id)
-    return n ? familyPersonSpan(n, seedId) + PAD + HUB_LANE * 0.35 : GAP
+    return n ? familyPersonSpan(n, seedId) + PAD + HUB_LANE * 0.25 : GAP
+  }
+
+  /** Width of person + same-gen spouses (a couple unit). */
+  const coupleWidth = (id: string): number => {
+    const node = maps.byId.get(id)
+    if (!node) return minLeaf(id)
+    const gen = node.__familyGen ?? 0
+    const spouses = (spousesOf.get(id) ?? []).filter((s) => {
+      const sn = maps.byId.get(s)
+      return sn && (sn.__familyGen ?? 0) === gen
+    })
+    let w = minLeaf(id)
+    let prev = node
+    for (const s of spouses) {
+      const sn = maps.byId.get(s)
+      if (!sn) continue
+      w += familyPairGap(maps, prev, sn, seedId)
+      prev = sn
+    }
+    return w
   }
 
   const subtreeWidth = (id: string, seen: Set<string>): number => {
-    if (seen.has(id)) return minLeaf(id)
+    if (seen.has(id)) return coupleWidth(id)
     seen.add(id)
     const kids = childrenOf.get(id) ?? []
-    const node = maps.byId.get(id)
-    // Couple block: person + spouses with hub lanes between
-    const spouses = (spousesOf.get(id) ?? []).filter((s) => {
-      const sn = maps.byId.get(s)
-      return sn && (sn.__familyGen ?? 0) === (maps.byId.get(id)?.__familyGen ?? 0)
-    })
-    let selfW = minLeaf(id)
-    if (node) {
-      let prev = node
-      for (const s of spouses) {
-        const sn = maps.byId.get(s)
-        if (!sn) continue
-        selfW += familyPairGap(maps, prev, sn, seedId)
-        prev = sn
-      }
-    }
+    const selfW = coupleWidth(id)
     if (!kids.length) return Math.max(GAP, selfW)
     const kidsSpan =
       kids.reduce((sum, k) => sum + subtreeWidth(k, seen), 0) +
@@ -1246,8 +1381,7 @@ function placeFamilyTree(cy: Core, data: GraphData) {
     spouseIds.forEach((sid) => {
       const spouse = maps.byId.get(sid)
       if (!spouse) return
-      const need = familyPairGap(maps, lastNode, spouse, seedId)
-      const sx = lastCenter + need
+      const sx = lastCenter + familyPairGap(maps, lastNode, spouse, seedId)
       xOf.set(sid, sx)
       yOf.set(sid, gen * BAND)
       placed.add(sid)
@@ -1265,17 +1399,16 @@ function placeFamilyTree(cy: Core, data: GraphData) {
     const widths = kids.map((k) => subtreeWidth(k, new Set()))
     const total =
       widths.reduce((a, b) => a + b, 0) + Math.max(0, kids.length - 1) * BRANCH_GAP
+    // Center children under the couple midpoint (mockup T-junction)
     const coupleMid =
       spouseIds.length && xOf.has(spouseIds[0]!)
         ? (x + (xOf.get(spouseIds[0]!) ?? x)) / 2
         : x
     let cursor = coupleMid - total / 2
-
     kids.forEach((kid, i) => {
       const w = widths[i]!
-      const kx = cursor + w / 2
+      placeDescendants(kid, cursor + w / 2, gen + 1, seen)
       cursor += w + BRANCH_GAP
-      placeDescendants(kid, kx, gen + 1, seen)
     })
   }
 
@@ -1288,12 +1421,12 @@ function placeFamilyTree(cy: Core, data: GraphData) {
       const desired = members.map((m, i) => {
         const kids = (childrenOf.get(m.id) ?? [])
           .map((c) => xOf.get(c))
-          .filter((x): x is number => x != null)
+          .filter((v): v is number => v != null)
         if (kids.length) return kids.reduce((a, b) => a + b, 0) / kids.length
         const childRefs = people.filter((p) => (parentsOf.get(p.id) ?? []).includes(m.id))
         const cxs = childRefs
           .map((c) => xOf.get(c.id))
-          .filter((x): x is number => x != null)
+          .filter((v): v is number => v != null)
         if (cxs.length) return cxs.reduce((a, b) => a + b, 0) / cxs.length
         return i * GAP
       })
@@ -1307,8 +1440,7 @@ function placeFamilyTree(cy: Core, data: GraphData) {
         if (placed.has(item.m.id)) continue
         let x = item.d
         if (prev && cursor !== Number.NEGATIVE_INFINITY) {
-          const need = familyPairGap(maps, prev, item.m, seedId)
-          x = Math.max(item.d, cursor + need)
+          x = Math.max(item.d, cursor + familyPairGap(maps, prev, item.m, seedId))
         }
         xOf.set(item.m.id, x)
         yOf.set(item.m.id, gen * BAND)
@@ -1322,26 +1454,23 @@ function placeFamilyTree(cy: Core, data: GraphData) {
   if (seed) {
     placeDescendants(seed.id, 0, seed.__familyGen ?? 0, new Set())
 
-    const siblings = people.filter(
+    const peers = people.filter(
       (n) =>
         (n.__familyGen ?? 0) === (seed.__familyGen ?? 0) &&
         !placed.has(n.id) &&
         (n.__familyRole === 'sibling' || n.__familyRole === 'spouse'),
     )
-
-    const leftSibs = siblings
+    const leftSibs = peers
       .filter((s) => s.__familyRole !== 'spouse')
       .sort((a, b) => a.label.localeCompare(b.label))
-    const rightSibs = siblings
+    const rightSibs = peers
       .filter((s) => s.__familyRole === 'spouse')
       .sort((a, b) => a.label.localeCompare(b.label))
 
-    // Siblings left of seed (place farthest first so gaps stack outward)
     let anchor: GraphNode = seed
     let anchorX = xOf.get(seed.id) ?? 0
     for (const sib of [...leftSibs].reverse()) {
-      const gap = familyPairGap(maps, sib, anchor, seedId)
-      const x = anchorX - gap
+      const x = anchorX - familyPairGap(maps, sib, anchor, seedId)
       placeDescendants(sib.id, x, seed.__familyGen ?? 0, new Set())
       anchor = sib
       anchorX = xOf.get(sib.id) ?? x
@@ -1350,8 +1479,7 @@ function placeFamilyTree(cy: Core, data: GraphData) {
     anchor = seed
     anchorX = xOf.get(seed.id) ?? 0
     for (const sib of rightSibs) {
-      const gap = familyPairGap(maps, anchor, sib, seedId)
-      const x = anchorX + gap
+      const x = anchorX + familyPairGap(maps, anchor, sib, seedId)
       xOf.set(sib.id, x)
       yOf.set(sib.id, (seed.__familyGen ?? 0) * BAND)
       placed.add(sib.id)
@@ -1362,12 +1490,19 @@ function placeFamilyTree(cy: Core, data: GraphData) {
 
   placeAncestors()
 
+  // Leftovers: append to the right of their generation
   for (const gen of gens) {
     const leftover = (byGen.get(gen) ?? []).filter((n) => !placed.has(n.id))
     if (!leftover.length) continue
     leftover.sort((a, b) => a.label.localeCompare(b.label))
-    let prev: GraphNode | null = null
-    let cursor = Number.NEGATIVE_INFINITY
+    const placedInGen = (byGen.get(gen) ?? []).filter((n) => xOf.has(n.id))
+    let prev: GraphNode | null =
+      placedInGen.length > 0
+        ? placedInGen.reduce((a, b) =>
+            (xOf.get(a.id) ?? 0) >= (xOf.get(b.id) ?? 0) ? a : b,
+          )
+        : null
+    let cursor = prev ? (xOf.get(prev.id) ?? 0) : Number.NEGATIVE_INFINITY
     for (const m of leftover) {
       const x =
         prev == null || cursor === Number.NEGATIVE_INFINITY
@@ -1381,8 +1516,39 @@ function placeFamilyTree(cy: Core, data: GraphData) {
     }
   }
 
-  // Expand each generation from the focus so left + right both breathe
-  for (let pass = 0; pass < 5; pass++) {
+  // Tidy: for each parent, shift their children’s block so its midpoint sits under the couple
+  for (const parent of people) {
+    const kids = (childrenOf.get(parent.id) ?? []).filter((id) => xOf.has(id))
+    if (kids.length < 1) continue
+    const px = xOf.get(parent.id)
+    if (px == null) continue
+    const spouses = (spousesOf.get(parent.id) ?? []).filter((s) => xOf.has(s))
+    const coupleMid =
+      spouses.length && xOf.has(spouses[0]!)
+        ? (px + (xOf.get(spouses[0]!) ?? px)) / 2
+        : px
+    const kidXs = kids.map((id) => xOf.get(id)!)
+    const blockMid = (Math.min(...kidXs) + Math.max(...kidXs)) / 2
+    const shift = coupleMid - blockMid
+    if (Math.abs(shift) < 1) continue
+
+    const shiftSubtree = (id: string, visited: Set<string>) => {
+      if (visited.has(id) || !xOf.has(id)) return
+      visited.add(id)
+      xOf.set(id, (xOf.get(id) ?? 0) + shift)
+      for (const s of spousesOf.get(id) ?? []) {
+        if (xOf.has(s) && !visited.has(s)) {
+          xOf.set(s, (xOf.get(s) ?? 0) + shift)
+          visited.add(s)
+        }
+      }
+      for (const k of childrenOf.get(id) ?? []) shiftSubtree(k, visited)
+    }
+    const visited = new Set<string>()
+    for (const k of kids) shiftSubtree(k, visited)
+  }
+
+  for (let pass = 0; pass < 4; pass++) {
     for (const gen of gens) {
       const row = (byGen.get(gen) ?? []).filter((n) => xOf.has(n.id))
       spreadFamilyPeopleRow(row, xOf, maps, seedId, seedId)
@@ -1390,9 +1556,7 @@ function placeFamilyTree(cy: Core, data: GraphData) {
   }
 
   const focusX = seed ? (xOf.get(seed.id) ?? 0) : 0
-  for (const [id, x] of [...xOf.entries()]) {
-    xOf.set(id, x - focusX)
-  }
+  for (const [id, x] of [...xOf.entries()]) xOf.set(id, x - focusX)
 
   cy.batch(() => {
     for (const n of people) {
@@ -1423,24 +1587,12 @@ function runLayout(
   cy.stop()
   const hasHubs = graphHasOntologyHubs(data)
 
-  if (mode === 'family') {
+  if (mode === 'family' || mode === 'family-cascade' || mode === 'family-tree') {
+    cy.edges().removeClass('tree-trunk')
     placeFamilyTree(cy, data)
     cy.edges('.kin-edge').addClass('tree-trunk')
-    fitAfter(cy)
-    return
-  }
-
-  if (mode === 'family-cascade') {
-    placeFamilyTree(cy, data)
-    cy.edges('.kin-edge').addClass('tree-trunk')
-    fitAfter(cy)
-    return
-  }
-
-  if (mode === 'family-tree') {
-    placeFamilyTree(cy, data)
-    cy.edges('.kin-edge').addClass('tree-trunk')
-    fitAfter(cy)
+    // Fit after positions settle
+    requestAnimationFrame(() => fitAfter(cy))
     return
   }
 
@@ -1759,6 +1911,7 @@ export const KnowledgeGraph = forwardRef<KnowledgeGraphHandle, Props>(
     useEffect(() => {
       const cy = cyRef.current
       if (!cy || dataRef.current.nodes.length === 0) return
+      cy.stop()
       cy.batch(() => {
         cy.elements().remove()
         cy.add(buildElements(dataRef.current))

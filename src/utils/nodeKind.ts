@@ -145,8 +145,8 @@ export function informativeCard(
       title,
       subtitle: '',
       meta: '',
-      width: Math.max(78, Math.min(title.length * 7 + 22, 132)),
-      height: 30,
+      width: Math.max(72, Math.min(title.length * 6.5 + 18, 120)),
+      height: 24,
       textMax: 110,
       kind,
     }
@@ -167,7 +167,7 @@ export function informativeCard(
     root ? 140 : isLit ? 92 : 108,
     Math.min(longest * 7 + (root ? 28 : 20), root ? 192 : 148),
   )
-  const height = root ? (isLit ? 50 : 40) : isLit ? 42 : 38
+  const height = root ? (isLit ? 44 : 36) : isLit ? 38 : 34
 
   return {
     label,

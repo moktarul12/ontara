@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { categoryFromSignals } from '../services/compareCategory'
+import { categoryFromSignals, hitFitsCompareCategory } from '../services/compareCategory'
 
 describe('categoryFromSignals', () => {
   it('prefers occupation for people', () => {
@@ -32,5 +32,25 @@ describe('categoryFromSignals', () => {
     })
     expect(cat?.kind).toBe('work')
     expect(cat?.matchProp).toBe('instance')
+  })
+})
+
+describe('hitFitsCompareCategory', () => {
+  const filmActor = categoryFromSignals({
+    occupations: [{ uri: 'http://www.wikidata.org/entity/Q33999', label: 'film actor' }],
+    industries: [],
+    instances: [],
+  })!
+
+  it('marks exact occupation match', () => {
+    expect(
+      hitFitsCompareCategory({ kind: 'person', categoryLabel: 'film actor' }, filmActor),
+    ).toBe('exact')
+  })
+
+  it('rejects wrong kind', () => {
+    expect(
+      hitFitsCompareCategory({ kind: 'org', categoryLabel: 'retail company' }, filmActor),
+    ).toBe('mismatch')
   })
 })

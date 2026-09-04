@@ -370,7 +370,9 @@ export default function App() {
 
   const familyLayout = () => {
     setLayoutMode('family-tree')
+    // Always bump keys so Arrange reflows even when already in family-tree mode
     setLayoutKey((k) => k + 1)
+    setFitKey((k) => k + 1)
   }
 
   const onOverviewLens = useCallback(
@@ -599,11 +601,23 @@ export default function App() {
                       applyDepth(n)
                     }}
                     onLayoutMode={(m) => {
+                      // Never drop family trees into force-directed "auto" arrange
+                      if (
+                        m === 'auto' &&
+                        (store.viewMode === 'family' || isFamilyLayout(layoutMode))
+                      ) {
+                        familyLayout()
+                        return
+                      }
                       setLayoutMode(m)
                       setLayoutKey((k) => k + 1)
+                      if (m === 'family-tree' || m === 'family' || m === 'family-cascade') {
+                        setFitKey((k) => k + 1)
+                      }
                     }}
                     onFamilyTree={() => {
-                      if (store.viewMode === 'family') {
+                      // Always re-arrange pedigree (Arrange + Family tree both land here)
+                      if (store.viewMode === 'family' || isFamilyLayout(layoutMode)) {
                         familyLayout()
                         return
                       }
