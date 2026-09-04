@@ -59,7 +59,11 @@ async function fetchJson<T>(url: string, timeoutMs = 18000): Promise<T | null> {
   try {
     const res = await fetch(url, { signal: ctrl.signal })
     if (!res.ok) return null
-    return (await res.json()) as T
+    const contentType = res.headers.get('content-type') ?? ''
+    if (!contentType.includes('json')) return null
+    const text = await res.text()
+    if (!text || text.trimStart().startsWith('<')) return null
+    return JSON.parse(text) as T
   } catch {
     return null
   } finally {

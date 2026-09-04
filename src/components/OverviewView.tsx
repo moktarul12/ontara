@@ -39,23 +39,38 @@ export function OverviewView({
   const [variants, setVariants] = useState<EntityLanguageVariant[]>([])
 
   useEffect(() => {
-    if (!uri || loading) {
+    if (!uri || loading || !dossier?.label) {
       if (!uri) setVariants([])
       return
     }
     let cancelled = false
-    void (async () => {
-      try {
-        const list = await fetchEntityLanguageVariants(store.config.endpoint, uri)
-        if (!cancelled) {
-          setVariants(list.length ? list : [{ lang: 'en', label: dossier?.label ?? 'Entity' }])
+    let idleCancel: (() => void) | undefined
+    const label = dossier.label
+
+    const run = () => {
+      void (async () => {
+        try {
+          const list = await fetchEntityLanguageVariants(store.config.endpoint, uri)
+          if (!cancelled) {
+            setVariants(list.length ? list : [{ lang: 'en', label }])
+          }
+        } catch {
+          if (!cancelled) setVariants([{ lang: 'en', label }])
         }
-      } catch {
-        if (!cancelled) setVariants([{ lang: 'en', label: dossier?.label ?? 'Entity' }])
-      }
-    })()
+      })()
+    }
+
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      const id = window.requestIdleCallback(run, { timeout: 3000 })
+      idleCancel = () => window.cancelIdleCallback(id)
+    } else {
+      const t = window.setTimeout(run, 1200)
+      idleCancel = () => window.clearTimeout(t)
+    }
+
     return () => {
       cancelled = true
+      idleCancel?.()
     }
   }, [uri, store.config.endpoint, dossier?.label, loading])
 

@@ -16,15 +16,31 @@ export async function enrichDossierWithImages(
   dossier: EntityDossier,
   profile: EntityProfile,
   wikiLeadImage?: string,
+  opts: { maxRelated?: number } = {},
 ): Promise<EntityDossier> {
-  const uris = new Set<string>([dossier.uri])
-  for (const f of profile.facts) {
-    if (f.valueUri) uris.add(f.valueUri)
+  const maxRelated = opts.maxRelated ?? 16
+  const uris = new Set<string>()
+  // Prefer family / works preview URIs — not every claim value (that was dozens of API calls).
+  for (const m of dossier.summary.familyPreview) {
+    if (m.uri) uris.add(m.uri)
+  }
+  for (const m of dossier.family.members) {
+    if (m.uri) uris.add(m.uri)
+  }
+  for (const w of dossier.summary.topWorks) {
+    if (w.uri) uris.add(w.uri)
+  }
+  for (const w of dossier.works.items.slice(0, 8)) {
+    if (w.uri) uris.add(w.uri)
+  }
+  if (uris.size < maxRelated) {
+    for (const f of profile.facts) {
+      if (f.valueUri && uris.size < maxRelated) uris.add(f.valueUri)
+    }
   }
 
-  const images = await fetchEntityImagesBatch([...uris], 320)
+  const images = await fetchEntityImagesBatch([...uris].slice(0, maxRelated), 320)
   const heroImage =
-    images[dossier.uri] ??
     dossier.hero.imageUrl ??
     upscaleWikiThumb(wikiLeadImage, 480)
 

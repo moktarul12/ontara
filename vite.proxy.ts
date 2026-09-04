@@ -92,9 +92,95 @@ export function ontaraDevProxy(): Plugin {
           !raw.startsWith('/api/wikipedia') &&
           !raw.startsWith('/api/mediawiki') &&
           !raw.startsWith('/api/ai/') &&
+          !raw.startsWith('/api/entity/') &&
           !raw.startsWith('/sparql')
         ) {
           next()
+          return
+        }
+
+        // Bundled overview shell — /api/entity/Q123/shell
+        if (raw.startsWith('/api/entity/') && raw.includes('/shell')) {
+          const incoming = new URL(raw, 'http://localhost')
+          const parts = incoming.pathname.split('/').filter(Boolean)
+          const qid = (parts[2] || '').toUpperCase()
+          const lang = incoming.searchParams.get('lang') || 'en'
+          if (!/^Q\d+$/.test(qid)) {
+            res.statusCode = 400
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Invalid Q-id' }))
+            return
+          }
+          try {
+            const wdUrl = new URL(UPSTREAM.wikidataApi)
+            wdUrl.searchParams.set('action', 'wbgetentities')
+            wdUrl.searchParams.set('ids', qid)
+            wdUrl.searchParams.set('props', 'claims|labels|descriptions|sitelinks')
+            wdUrl.searchParams.set('languages', `${lang}|en`)
+            wdUrl.searchParams.set('format', 'json')
+
+            const wdRes = await fetch(wdUrl.toString(), {
+              headers: { 'User-Agent': UA, Accept: 'application/json' },
+            })
+            const wdJson = (await wdRes.json()) as {
+              entities?: Record<
+                string,
+                { sitelinks?: Record<string, { title?: string }> }
+              >
+            }
+            const entity = wdJson?.entities?.[qid]
+            const wikiTitle =
+              entity?.sitelinks?.[`${lang}wiki`]?.title ??
+              entity?.sitelinks?.enwiki?.title ??
+              null
+
+            let wiki: Record<string, unknown> | null = null
+            if (wikiTitle) {
+              const encoded = encodeURIComponent(wikiTitle.replace(/ /g, '_'))
+              const summaryUrl = `${wikipediaRestBase(lang)}/page/summary/${encoded}`
+              const tocUrl = new URL(`https://${lang}.wikipedia.org/w/api.php`)
+              tocUrl.searchParams.set('action', 'parse')
+              tocUrl.searchParams.set('page', wikiTitle)
+              tocUrl.searchParams.set('prop', 'sections')
+              tocUrl.searchParams.set('format', 'json')
+              const introUrl = new URL(`https://${lang}.wikipedia.org/w/api.php`)
+              introUrl.searchParams.set('action', 'parse')
+              introUrl.searchParams.set('page', wikiTitle)
+              introUrl.searchParams.set('section', '0')
+              introUrl.searchParams.set('prop', 'text')
+              introUrl.searchParams.set('formatversion', '2')
+              introUrl.searchParams.set('format', 'json')
+
+              const [summaryRes, tocRes, introRes] = await Promise.all([
+                fetch(summaryUrl, {
+                  headers: { 'User-Agent': UA, Accept: 'application/json' },
+                }),
+                fetch(tocUrl.toString(), {
+                  headers: { 'User-Agent': UA, Accept: 'application/json' },
+                }),
+                fetch(introUrl.toString(), {
+                  headers: { 'User-Agent': UA, Accept: 'application/json' },
+                }),
+              ])
+
+              wiki = {
+                summary: summaryRes.ok ? await summaryRes.json() : null,
+                toc: tocRes.ok ? await tocRes.json() : null,
+                intro: introRes.ok ? await introRes.json() : null,
+                title: wikiTitle,
+                lang,
+              }
+            }
+
+            res.statusCode = 200
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ qid, lang, wikidata: wdJson, wiki }))
+          } catch (err) {
+            const detail = err instanceof Error ? err.message : String(err)
+            res.statusCode = 502
+            res.setHeader('Content-Type', 'application/json')
+            res.end(JSON.stringify({ error: 'Entity shell failed', detail }))
+          }
           return
         }
 

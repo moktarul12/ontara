@@ -1,6 +1,4 @@
-import { WIKIDATA_ENDPOINT } from '../types/ontology'
 import { qidFromUri } from './wikidataClaims'
-import * as wd from './wikidata'
 
 const WIKIDATA_API = '/api/wikidata'
 const P18 = 'P18'
@@ -27,11 +25,8 @@ export async function imageUrlFromEntityClaims(
   const file = entity?.claims?.[P18]?.[0]?.mainsnak?.datavalue?.value
   const name = commonsFromClaim(file)
   if (!name) return undefined
-  const url = await wd.resolveCommonsThumb(
-    `http://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(name)}`,
-    width,
-  )
-  return url ?? undefined
+  // Direct FilePath URL — avoids a Commons API round-trip on every overview load.
+  return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(name)}?width=${width}`
 }
 
 /** Fetch P18 image via Wikidata API (fallback when SPARQL image is slow). */
@@ -51,7 +46,7 @@ export async function fetchWikidataP18Image(
     const file = claims?.[0]?.mainsnak?.datavalue?.value
     const name = commonsFromClaim(file)
     if (!name) return null
-    return wd.resolveCommonsThumb(`http://commons.wikimedia.org/wiki/Special:FilePath/${name}`, width)
+    return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(name)}?width=${width}`
   } catch {
     return null
   }
@@ -81,24 +76,16 @@ export async function fetchEntityImagesBatch(
       )
       if (!res.ok) continue
       const data = (await res.json()) as { entities?: Record<string, WbEntity> }
-      await Promise.all(
-        chunk.map(async (qid) => {
-          const uri = `http://www.wikidata.org/entity/${qid}`
-          const claims = data.entities?.[qid]?.claims?.[P18]
-          const file = claims?.[0]?.mainsnak?.datavalue?.value
-          const name = commonsFromClaim(file)
-          if (!name) {
-            const sparql = await wd.wdEntityImage(WIKIDATA_ENDPOINT, uri, width)
-            if (sparql) out[uri] = sparql
-            return
-          }
-          const thumb = await wd.resolveCommonsThumb(
-            `http://commons.wikimedia.org/wiki/Special:FilePath/${name}`,
-            width,
-          )
-          if (thumb) out[uri] = thumb
-        }),
-      )
+      for (const qid of chunk) {
+        const uri = `http://www.wikidata.org/entity/${qid}`
+        const claims = data.entities?.[qid]?.claims?.[P18]
+        const file = claims?.[0]?.mainsnak?.datavalue?.value
+        const name = commonsFromClaim(file)
+        if (!name) continue
+        // Skip per-entity Commons/SPARQL fallbacks — one batch claims call is enough.
+        out[uri] =
+          `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(name)}?width=${width}`
+      }
     } catch {
       /* skip chunk */
     }

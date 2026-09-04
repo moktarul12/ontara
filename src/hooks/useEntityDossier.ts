@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { buildEntityDossier } from '../services/dossierBuilder'
 import { enrichDossierWithImages } from '../services/dossierEnrich'
 import { enrichEntityCardShell, fetchEntityCardShell, type CardShell } from '../services/entityCardShell'
-import { buildAiCategoryContent } from '../services/aiContentService'
 import { enrichDossierWithAiProfile } from '../services/aiEntityProfileService'
 import { dossierBackgroundEnrichPlan, dossierLoadPlan } from '../services/dossierLoadPlan'
 import type { OverviewSectionId } from '../services/overviewSections'
@@ -16,7 +15,9 @@ function withShellHeroImage(dossier: EntityDossier, imageUrl?: string): EntityDo
 
 async function dossierFromShell(shell: CardShell, partial: boolean, leadImage?: string) {
   const built = buildEntityDossier(shell.article, shell.profile, !partial)
-  return enrichDossierWithImages(built, shell.profile, leadImage ?? shell.wiki?.leadImage)
+  return enrichDossierWithImages(built, shell.profile, leadImage ?? shell.wiki?.leadImage, {
+    maxRelated: 12,
+  })
 }
 
 async function enrichShellToDossier(
@@ -34,11 +35,8 @@ async function enrichShellToDossier(
 }
 
 async function applyAiLayers(dossier: EntityDossier): Promise<EntityDossier> {
-  const [categoryContent, withAi] = await Promise.all([
-    buildAiCategoryContent(dossier, dossier.summary.verifiedFacts),
-    enrichDossierWithAiProfile(dossier),
-  ])
-  return categoryContent ? { ...withAi, categoryContent } : withAi
+  // AI profile only — skip synthesize category content (extra /api/ai/synthesize call).
+  return enrichDossierWithAiProfile(dossier)
 }
 
 function isFastOverviewPlan(plan: ReturnType<typeof dossierLoadPlan>): boolean {
@@ -48,6 +46,15 @@ function isFastOverviewPlan(plan: ReturnType<typeof dossierLoadPlan>): boolean {
     !plan.fetchSupplement &&
     plan.skipFacets
   )
+}
+
+function scheduleIdle(fn: () => void, timeoutMs = 2500) {
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    const id = window.requestIdleCallback(() => fn(), { timeout: timeoutMs })
+    return () => window.cancelIdleCallback(id)
+  }
+  const t = window.setTimeout(fn, Math.min(timeoutMs, 800))
+  return () => window.clearTimeout(t)
 }
 
 export function useEntityDossier(
@@ -75,18 +82,17 @@ export function useEntityDossier(
     }
 
     let cancelled = false
+    let cancelIdle: (() => void) | undefined
     const plan = dossierLoadPlan(sectionAtLoadRef.current)
     const backgroundPlan = dossierBackgroundEnrichPlan()
     const fastOverview = isFastOverviewPlan(plan)
-    const needsBackgroundLater =
-      !fastOverview &&
-      (!plan.includeTables || !plan.fetchSupplement || plan.skipFacets)
 
     void (async () => {
       setLoading(true)
       setEnriching(false)
       setErr(null)
       try {
+        // 1) One bundled shell call → paint overview immediately
         const shell = await fetchEntityCardShell(uri, lang)
         const built = buildEntityDossier(shell.article, shell.profile, true)
         const initial = withShellHeroImage(
@@ -96,64 +102,56 @@ export function useEntityDossier(
         if (!cancelled) {
           setDossier(initial)
           setLoading(false)
-          setEnriching(true)
         }
 
-        void enrichDossierWithImages(built, shell.profile, shell.wiki?.leadImage).then(
-          (withImages) => {
+        // 2) Related portraits — deferred, capped (was N+1 Commons/SPARQL storms)
+        cancelIdle = scheduleIdle(() => {
+          if (cancelled) return
+          void enrichDossierWithImages(
+            built,
+            shell.profile,
+            shell.wiki?.leadImage,
+            { maxRelated: 12 },
+          ).then((withImages) => {
             if (!cancelled) {
               setDossier((d) =>
-                d ? withShellHeroImage(withImages, shell.profile.imageUrl ?? shell.wiki?.leadImage) : d,
+                d
+                  ? withShellHeroImage(
+                      withImages,
+                      shell.profile.imageUrl ?? shell.wiki?.leadImage,
+                    )
+                  : d,
               )
             }
-          },
-        )
+          })
+        }, 1800)
 
-        const runAi = async (base: EntityDossier) => {
-          const final = await applyAiLayers(base)
-          if (!cancelled) {
-            setDossier(final)
-            setEnriching(false)
-          }
-        }
-
+        // 3) Fast summary: skip heavy SPARQL/tables/AI on open
         if (fastOverview) {
-          if (!cancelled) setEnriching(false)
-          void enrichShellToDossier(shell, lang, backgroundPlan)
-            .then((fullDossier) => {
-              if (cancelled) return
-              setDossier(fullDossier)
-              void runAi(fullDossier).catch(() => {})
-            })
-            .catch(() => {})
+          // Optional light no-op enrich (uses shell cache) — no network when skipFacets
+          void enrichShellToDossier(shell, lang, backgroundPlan).catch(() => {})
           return
         }
 
-        if (needsBackgroundLater) {
-          void enrichShellToDossier(shell, lang, backgroundPlan)
-            .then(async (fullDossier) => {
-              if (cancelled) return
-              setDossier(fullDossier)
-              await runAi(fullDossier)
-            })
-            .catch(() => {
-              if (!cancelled) setEnriching(false)
-            })
-          return
-        }
-
+        // 4) Section-specific needs (filmography / sources / etc.)
+        if (!cancelled) setEnriching(true)
         const withFacets = await enrichShellToDossier(shell, lang, plan)
-        if (!cancelled) {
-          setDossier(withFacets)
-          if (plan.deferAi) {
-            setEnriching(false)
-          }
-        }
+        if (cancelled) return
+        setDossier(withFacets)
+        setEnriching(false)
 
         if (!plan.deferAi) {
-          await runAi(withFacets)
+          const final = await applyAiLayers(withFacets)
+          if (!cancelled) setDossier(final)
         } else {
-          void runAi(withFacets)
+          scheduleIdle(() => {
+            if (cancelled) return
+            void applyAiLayers(withFacets)
+              .then((final) => {
+                if (!cancelled) setDossier(final)
+              })
+              .catch(() => {})
+          }, 4000)
         }
       } catch (e) {
         if (!cancelled) {
@@ -167,6 +165,7 @@ export function useEntityDossier(
 
     return () => {
       cancelled = true
+      cancelIdle?.()
     }
   }, [uri, lang])
 

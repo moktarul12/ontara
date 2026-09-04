@@ -131,10 +131,18 @@ async function fetchEntities(ids: string[], lang: string): Promise<Record<string
   if (!ids.length) return {}
   const unique = [...new Set(ids)].slice(0, 50)
   const url = `${WIKIDATA_API}?action=wbgetentities&ids=${unique.join('|')}&props=labels&languages=${lang}|en&format=json`
-  const res = await fetch(url)
-  if (!res.ok) return {}
-  const data = (await res.json()) as { entities?: Record<string, WbEntity> }
-  return data.entities ?? {}
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return {}
+    const contentType = res.headers.get('content-type') ?? ''
+    if (!contentType.includes('json')) return {}
+    const text = await res.text()
+    if (!text || text.trimStart().startsWith('<')) return {}
+    const data = JSON.parse(text) as { entities?: Record<string, WbEntity> }
+    return data.entities ?? {}
+  } catch {
+    return {}
+  }
 }
 
 function labelFromEntity(entity: WbEntity | undefined, lang: string): string {
@@ -197,10 +205,18 @@ export async function fetchWikidataClaimFacts(
   let entity = preloadedEntity
   if (!entity) {
     const url = `${WIKIDATA_API}?action=wbgetentities&ids=${qid}&props=claims|labels|descriptions|sitelinks&languages=${lang}|en&format=json`
-    const res = await fetch(url)
-    if (!res.ok) return { facts: [] }
-    const data = (await res.json()) as { entities?: Record<string, WbEntity> }
-    entity = data.entities?.[qid]
+    try {
+      const res = await fetch(url)
+      if (!res.ok) return { facts: [] }
+      const contentType = res.headers.get('content-type') ?? ''
+      if (!contentType.includes('json')) return { facts: [] }
+      const text = await res.text()
+      if (!text || text.trimStart().startsWith('<')) return { facts: [] }
+      const data = JSON.parse(text) as { entities?: Record<string, WbEntity> }
+      entity = data.entities?.[qid]
+    } catch {
+      return { facts: [] }
+    }
   }
 
   const imageUrl = await imageUrlFromEntityClaims(entity, 480)

@@ -158,26 +158,36 @@ async function fetchWikipediaLeadFast(
 }
 
 async function fetchEntityShellBundle(qid: string, lang: string) {
-  const res = await fetch(`/api/entity/${qid}/shell?lang=${encodeURIComponent(lang)}`)
-  if (!res.ok) return null
-  return res.json() as Promise<{
-    qid: string
-    lang: string
-    wikidata: { entities?: Record<string, unknown> }
-    wiki?: {
-      title: string
+  try {
+    const res = await fetch(`/api/entity/${qid}/shell?lang=${encodeURIComponent(lang)}`)
+    if (!res.ok) return null
+    const contentType = res.headers.get('content-type') ?? ''
+    // Missing routes often return SPA index.html with 200 — never parse as JSON.
+    if (!contentType.includes('json')) return null
+    const text = await res.text()
+    const trimmed = text.trimStart()
+    if (!trimmed || trimmed.startsWith('<')) return null
+    return JSON.parse(trimmed) as {
+      qid: string
       lang: string
-      summary?: {
-        title?: string
-        description?: string
-        extract?: string
-        thumbnail?: { source?: string }
-        content_urls?: { desktop?: { page?: string } }
-      }
-      toc?: { parse?: { sections?: { index: string; line: string; level: string; anchor: string }[] } }
-      intro?: { parse?: { text?: string } }
-    } | null
-  }>
+      wikidata: { entities?: Record<string, unknown> }
+      wiki?: {
+        title: string
+        lang: string
+        summary?: {
+          title?: string
+          description?: string
+          extract?: string
+          thumbnail?: { source?: string }
+          content_urls?: { desktop?: { page?: string } }
+        }
+        toc?: { parse?: { sections?: { index: string; line: string; level: string; anchor: string }[] } }
+        intro?: { parse?: { text?: string } }
+      } | null
+    }
+  } catch {
+    return null
+  }
 }
 
 function wikiLeadFromBundle(
@@ -350,7 +360,8 @@ export async function enrichEntityCardShell(
     : null
 
   let leadWiki = wiki
-  if (wiki?.title && (wiki.leadParagraphs?.length ?? 0) <= 1) {
+  // Shell already ships intro paragraphs — only re-fetch when completely missing.
+  if (wiki?.title && (wiki.leadParagraphs?.length ?? 0) === 0) {
     const intro = await fetchWikipediaIntroParagraphs(wiki.title, wiki.lang)
     if (intro.length) {
       leadWiki = {
@@ -360,6 +371,19 @@ export async function enrichEntityCardShell(
         sectionToc: wiki.sectionToc ?? [],
       }
     }
+  }
+
+  // Skip rebuild when nothing new was requested beyond the shell article.
+  if (skipFacets && !includeSections && !includeTables && !fetchSupplement) {
+    const enriched: CardShell = {
+      profile: enrichedProfile,
+      article: leadWiki
+        ? { ...shell.article, lead: { ...shell.article.lead, paragraphs: leadWiki.leadParagraphs, text: leadWiki.leadText || shell.article.lead.text } }
+        : shell.article,
+      wiki: leadWiki,
+    }
+    CACHE.set(cacheKey, { at: Date.now(), shell: enriched })
+    return enriched
   }
 
   const article = await buildEntityArticle(enrichedProfile, lang, {
@@ -378,7 +402,7 @@ export async function enrichEntityCardShell(
   const enriched: CardShell = {
     profile: enrichedProfile,
     article,
-    wiki,
+    wiki: leadWiki,
   }
   CACHE.set(cacheKey, { at: Date.now(), shell: enriched })
   return enriched

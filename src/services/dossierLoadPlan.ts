@@ -64,11 +64,17 @@ export function dossierLoadPlan(section?: OverviewSectionId): DossierLoadPlan {
 }
 
 export function dossierBackgroundEnrichPlan(): DossierLoadPlan {
+  // Keep idle enrich light — tables/supplement/facets load when those sections need them.
   return {
     includeSections: false,
-    includeTables: true,
-    fetchSupplement: true,
+    includeTables: false,
+    fetchSupplement: false,
     deferAi: true,
-    skipFacets: false,
+    skipFacets: true,
   }
+}
+
+/** Heavier enrich when user opens filmography / awards / sources. */
+export function dossierSectionEnrichPlan(section?: OverviewSectionId): DossierLoadPlan {
+  return dossierLoadPlan(section)
 }
