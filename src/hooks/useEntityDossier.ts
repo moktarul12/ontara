@@ -53,8 +53,8 @@ function scheduleIdle(fn: () => void, timeoutMs = 2500) {
     const id = window.requestIdleCallback(() => fn(), { timeout: timeoutMs })
     return () => window.cancelIdleCallback(id)
   }
-  const t = window.setTimeout(fn, Math.min(timeoutMs, 800))
-  return () => window.clearTimeout(t)
+  const t = globalThis.setTimeout(fn, Math.min(timeoutMs, 800))
+  return () => globalThis.clearTimeout(t)
 }
 
 export function useEntityDossier(

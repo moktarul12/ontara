@@ -64,8 +64,8 @@ export function OverviewView({
       const id = window.requestIdleCallback(run, { timeout: 3000 })
       idleCancel = () => window.cancelIdleCallback(id)
     } else {
-      const t = window.setTimeout(run, 1200)
-      idleCancel = () => window.clearTimeout(t)
+      const t = globalThis.setTimeout(run, 1200)
+      idleCancel = () => globalThis.clearTimeout(t)
     }
 
     return () => {
